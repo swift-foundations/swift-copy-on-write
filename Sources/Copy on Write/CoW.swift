@@ -47,15 +47,15 @@
 ///
 ///     private var storage: Storage
 ///
-///     private mutating func ensureUnique() {
+///     public mutating func ensureUnique() {
 ///         if !isKnownUniquelyReferenced(&storage) {
 ///             storage = Storage(copying: storage)
 ///         }
 ///     }
 ///
 ///     public var layoutBox: Rectangle {
-///         get { storage.layoutBox }
-///         set { ensureUnique(); storage.layoutBox = newValue }
+///         _read { yield storage.layoutBox }
+///         _modify { ensureUnique(); yield &storage.layoutBox }
 ///     }
 ///     // ... etc
 /// }
@@ -81,5 +81,8 @@ public macro CoW() = #externalMacro(module: "Copy_on_Write_Macros", type: "CoWMa
 
 /// Internal macro applied to properties by @`Copy on Write` to provide accessor implementations.
 /// This transforms stored properties into computed properties that delegate to Storage.
-@attached(accessor, names: named(get), named(set))
+///
+/// Generates `_read/_modify` accessors for `var` properties (enabling in-place mutation
+/// and composable `_modify` chains), and `_read` for `let` properties.
+@attached(accessor, names: named(_read), named(_modify))
 public macro _CoWProperty() = #externalMacro(module: "Copy_on_Write_Macros", type: "CoWPropertyMacro")

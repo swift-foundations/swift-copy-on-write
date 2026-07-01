@@ -1,7 +1,18 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.3.1
 
 import PackageDescription
 import CompilerPluginSupport
+
+extension String {
+    static let copyOnWrite: Self = "Copy on Write"
+    static let copyOnWriteMacros: Self = "Copy on Write Macros"
+    var tests: Self { self + " Tests" }
+}
+
+extension Target.Dependency {
+    static var copyOnWrite: Self { .target(name: .copyOnWrite) }
+    static var copyOnWriteMacros: Self { .target(name: .copyOnWriteMacros) }
+}
 
 let package = Package(
     name: "swift-copy-on-write",
@@ -14,38 +25,54 @@ let package = Package(
     ],
     products: [
         .library(
-            name: "Copy on Write",
-            targets: ["Copy on Write"]
+            name: .copyOnWrite,
+            targets: [.copyOnWrite]
         ),
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", "602.0.0"..<"603.0.0"),
     ],
     targets: [
-        // Public API - the @CoW macro declaration
         .target(
-            name: "Copy on Write",
-            dependencies: ["Copy on Write Macros"]
+            name: .copyOnWrite,
+            dependencies: [.copyOnWriteMacros]
         ),
-
-        // Macro implementation - compiler plugin
         .macro(
-            name: "Copy on Write Macros",
+            name: .copyOnWriteMacros,
             dependencies: [
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
             ]
         ),
-
-        // Tests
         .testTarget(
-            name: "Copy on Write Tests",
+            name: .copyOnWrite.tests,
             dependencies: [
-                "Copy on Write",
-                "Copy on Write Macros",
+                .copyOnWrite,
+                .copyOnWriteMacros,
                 .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
-            ]
+            ],
+            path: "Tests/Copy on Write Tests"
         ),
-    ]
+    ],
+    swiftLanguageModes: [.v6]
 )
+
+for target in package.targets where ![.system, .binary, .plugin, .macro].contains(target.type) {
+    let ecosystem: [SwiftSetting] = [
+        .strictMemorySafety(),
+        .enableUpcomingFeature("ExistentialAny"),
+        .enableUpcomingFeature("InternalImportsByDefault"),
+        .enableUpcomingFeature("MemberImportVisibility"),
+        .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+        .enableExperimentalFeature("LifetimeDependence"),
+        .enableExperimentalFeature("Lifetimes"),
+        .enableExperimentalFeature("SuppressedAssociatedTypes"),
+        .enableUpcomingFeature("InferIsolatedConformances"),
+        .enableUpcomingFeature("LifetimeDependence"),
+    ]
+
+    let package: [SwiftSetting] = []
+
+    target.swiftSettings = (target.swiftSettings ?? []) + ecosystem + package
+}

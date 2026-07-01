@@ -53,8 +53,10 @@ extension CoWMacro: MemberMacro {
         let storageProperty: DeclSyntax = "private var storage: Storage"
 
         // Generate ensureUnique method
+        // Matches struct's access level so Property _modify accessors can call it.
+        let ensureUniqueAccess = extractAccessLevel(from: structDecl.modifiers) ?? "internal"
         let ensureUnique: DeclSyntax = """
-            private mutating func ensureUnique() {
+            \(raw: ensureUniqueAccess) mutating func ensureUnique() {
                 if !isKnownUniquelyReferenced(&storage) {
                     storage = Storage(copying: storage)
                 }
@@ -353,23 +355,32 @@ public struct CoWPropertyMacro: AccessorMacro {
             // Read-only accessor for let properties
             return [
                 """
-                get {
-                    storage.\(raw: identifier)
+                _read {
+                    yield storage.\(raw: identifier)
                 }
                 """
             ]
         } else {
             // Read-write accessors for var properties
+            // _read yields a borrowed reference (avoids copying collections).
+            // _modify uses copy-out/yield/write-back to ensure the yielded
+            // pointer is always to a stack-local, never into heap storage.
+            // This is required for safe composition: when a @CoW property is
+            // itself a @CoW type, a nested ensureUnique() could reallocate
+            // inner storage while an outer _modify's heap pointer is live,
+            // producing a dangling pointer (debug-mode SIGSEGV).
             return [
                 """
-                get {
-                    storage.\(raw: identifier)
+                _read {
+                    yield storage.\(raw: identifier)
                 }
                 """,
                 """
-                set {
+                _modify {
                     ensureUnique()
-                    storage.\(raw: identifier) = newValue
+                    var value = storage.\(raw: identifier)
+                    yield &value
+                    storage.\(raw: identifier) = value
                 }
                 """
             ]
