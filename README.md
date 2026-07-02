@@ -79,7 +79,7 @@ Requires Swift 6.3.1 and the macOS 26 / iOS 26 / tvOS 26 / watchOS 26 / visionOS
 ## Community
 
 <!-- BEGIN: discussion -->
-*Discussion thread will be created at first public flip.*
+*Discussion thread will be created at first public release.*
 <!-- END: discussion -->
 
 ## License
