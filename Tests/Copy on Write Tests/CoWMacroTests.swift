@@ -1,8 +1,8 @@
 // CoWMacroTests.swift
 
+import Copy_on_Write
 import Foundation
 import Testing
-import Copy_on_Write
 
 // MARK: - Test Types
 
@@ -593,7 +593,10 @@ struct CopyOnWriteTests {
 
     @Test
     func `Value generic parameters work`() {
-        let s = WithValueGeneric(size: ValueGeneric(value: 42), optionalSize: ValueGeneric(value: 100))
+        let s = WithValueGeneric(
+            size: ValueGeneric(value: 42),
+            optionalSize: ValueGeneric(value: 100)
+        )
         #expect(s.size.value == 42)
         #expect(s.optionalSize?.value == 100)
     }

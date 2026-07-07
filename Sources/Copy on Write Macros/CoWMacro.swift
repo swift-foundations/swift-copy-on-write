@@ -1,9 +1,9 @@
 // CoWMacro.swift
 // Implementation of the @CoW macro
 
+import SwiftCompilerPlugin
 import SwiftSyntax
 import SwiftSyntaxMacros
-import SwiftCompilerPlugin
 
 /// Information about a stored property extracted from the struct
 struct StoredProperty {
@@ -65,7 +65,10 @@ extension CoWMacro: MemberMacro {
 
         // Generate initializer (only var properties)
         // Use struct's access level for the initializer
-        let initializer = generateInitializer(properties: varProperties, structAccessLevel: extractAccessLevel(from: structDecl.modifiers))
+        let initializer = generateInitializer(
+            properties: varProperties,
+            structAccessLevel: extractAccessLevel(from: structDecl.modifiers)
+        )
 
         // Generate isIdentical(to:) method
         // Match access level to struct's declared visibility
@@ -113,9 +116,10 @@ extension CoWMacro: ExtensionMacro {
         }
 
         // Check which protocols the struct wants to conform to
-        let inheritedTypes = structDecl.inheritanceClause?.inheritedTypes.map {
-            $0.type.trimmedDescription
-        } ?? []
+        let inheritedTypes =
+            structDecl.inheritanceClause?.inheritedTypes.map {
+                $0.type.trimmedDescription
+            } ?? []
 
         var extensions: [ExtensionDeclSyntax] = []
 
@@ -331,7 +335,9 @@ extension CoWMacro: MemberAttributeMacro {
         }
 
         // Add @_CoWProperty to transform this into a computed property
-        return [AttributeSyntax(attributeName: IdentifierTypeSyntax(name: .identifier("_CoWProperty")))]
+        return [
+            AttributeSyntax(attributeName: IdentifierTypeSyntax(name: .identifier("_CoWProperty")))
+        ]
     }
 }
 
@@ -344,8 +350,9 @@ public struct CoWPropertyMacro: AccessorMacro {
         in context: some MacroExpansionContext
     ) throws -> [AccessorDeclSyntax] {
         guard let varDecl = declaration.as(VariableDeclSyntax.self),
-              let binding = varDecl.bindings.first,
-              let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text else {
+            let binding = varDecl.bindings.first,
+            let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
+        else {
             return []
         }
 
@@ -382,7 +389,7 @@ public struct CoWPropertyMacro: AccessorMacro {
                     yield &value
                     storage.\(raw: identifier) = value
                 }
-                """
+                """,
             ]
         }
     }
@@ -415,7 +422,8 @@ private func extractStoredProperties(from structDecl: StructDeclSyntax) -> [Stor
         let isVar = varDecl.bindingSpecifier.tokenKind == .keyword(.var)
 
         for binding in varDecl.bindings {
-            guard let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text else {
+            guard let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text
+            else {
                 continue
             }
 
@@ -425,20 +433,24 @@ private func extractStoredProperties(from structDecl: StructDeclSyntax) -> [Stor
                 type = typeAnnotation
             } else if let initializer = binding.initializer?.value {
                 // Try to infer type from literal
-                type = inferType(from: initializer) ?? TypeSyntax(IdentifierTypeSyntax(name: .identifier("Any")))
+                type =
+                    inferType(from: initializer)
+                    ?? TypeSyntax(IdentifierTypeSyntax(name: .identifier("Any")))
             } else {
-                continue // Can't determine type
+                continue  // Can't determine type
             }
 
             let defaultValue = binding.initializer?.value
 
-            properties.append(StoredProperty(
-                name: identifier,
-                type: type,
-                defaultValue: defaultValue,
-                accessLevel: accessLevel,
-                isVar: isVar
-            ))
+            properties.append(
+                StoredProperty(
+                    name: identifier,
+                    type: type,
+                    defaultValue: defaultValue,
+                    accessLevel: accessLevel,
+                    isVar: isVar
+                )
+            )
         }
     }
 
@@ -453,8 +465,9 @@ private func isComputedProperty(_ varDecl: VariableDeclSyntax) -> Bool {
                 return true
             case .accessors(let accessorList):
                 for accessor in accessorList {
-                    if accessor.accessorSpecifier.tokenKind == .keyword(.get) ||
-                       accessor.accessorSpecifier.tokenKind == .keyword(.set) {
+                    if accessor.accessorSpecifier.tokenKind == .keyword(.get)
+                        || accessor.accessorSpecifier.tokenKind == .keyword(.set)
+                    {
                         return true
                     }
                 }
@@ -503,7 +516,8 @@ private func isOptionalType(_ type: TypeSyntax) -> Bool {
     }
     // Optional<T> syntax
     if let identifier = type.as(IdentifierTypeSyntax.self),
-       identifier.name.text == "Optional" {
+        identifier.name.text == "Optional"
+    {
         return true
     }
     return false
@@ -570,9 +584,9 @@ private func needsSpaceBetween(_ prev: String, _ next: String) -> Bool {
     if prev == "->" || next == "->" { return true }
 
     // Space after keywords
-    if prev == "some" || prev == "any" || prev == "inout" ||
-       prev == "repeat" || prev == "each" || prev == "throws" ||
-       prev == "async" || prev == "rethrows" {
+    if prev == "some" || prev == "any" || prev == "inout" || prev == "repeat" || prev == "each"
+        || prev == "throws" || prev == "async" || prev == "rethrows"
+    {
         return true
     }
 
@@ -635,7 +649,10 @@ private func generateStorageClass(properties: [StoredProperty]) -> DeclSyntax {
         """
 }
 
-private func generateInitializer(properties: [StoredProperty], structAccessLevel: String?) -> DeclSyntax {
+private func generateInitializer(
+    properties: [StoredProperty],
+    structAccessLevel: String?
+) -> DeclSyntax {
     // Use struct's access level for the initializer
     let accessModifier = structAccessLevel.map { "\($0) " } ?? ""
 
@@ -674,11 +691,14 @@ enum CoWMacroError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .onlyApplicableToStruct:
-            return "@CoW can only be applied to structs. Classes, enums, and actors are not supported."
+            return
+                "@CoW can only be applied to structs. Classes, enums, and actors are not supported."
         case .noStoredProperties:
-            return "@CoW requires at least one stored property. Add a 'var' property to your struct."
+            return
+                "@CoW requires at least one stored property. Add a 'var' property to your struct."
         case .noVarProperties:
-            return "@CoW requires at least one 'var' property. Change 'let' to 'var' or use 'private(set) var' for read-only properties."
+            return
+                "@CoW requires at least one 'var' property. Change 'let' to 'var' or use 'private(set) var' for read-only properties."
         }
     }
 }

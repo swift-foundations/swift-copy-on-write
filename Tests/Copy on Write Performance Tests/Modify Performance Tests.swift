@@ -21,8 +21,8 @@
 //
 // These benchmarks measure the overhead of the extra copy + write-back.
 
-import Testing
 import Copy_on_Write
+import Testing
 
 // MARK: - Hand-Rolled Implementations
 
@@ -33,8 +33,14 @@ struct NaivePoint {
         var x: Int
         var y: Int
 
-        init(x: Int, y: Int) { self.x = x; self.y = y }
-        init(copying other: Storage) { self.x = other.x; self.y = other.y }
+        init(x: Int, y: Int) {
+            self.x = x
+            self.y = y
+        }
+        init(copying other: Storage) {
+            self.x = other.x
+            self.y = other.y
+        }
     }
 
     private var storage: Storage
@@ -69,8 +75,14 @@ struct NaiveOuter {
         var inner: NaivePoint
         var label: Int
 
-        init(inner: NaivePoint, label: Int) { self.inner = inner; self.label = label }
-        init(copying other: Storage) { self.inner = other.inner; self.label = other.label }
+        init(inner: NaivePoint, label: Int) {
+            self.inner = inner
+            self.label = label
+        }
+        init(copying other: Storage) {
+            self.inner = other.inner
+            self.label = other.label
+        }
     }
 
     private var storage: Storage
@@ -107,8 +119,14 @@ struct SafePoint {
         var x: Int
         var y: Int
 
-        init(x: Int, y: Int) { self.x = x; self.y = y }
-        init(copying other: Storage) { self.x = other.x; self.y = other.y }
+        init(x: Int, y: Int) {
+            self.x = x
+            self.y = y
+        }
+        init(copying other: Storage) {
+            self.x = other.x
+            self.y = other.y
+        }
     }
 
     private var storage: Storage
@@ -147,8 +165,14 @@ struct SafeOuter {
         var inner: SafePoint
         var label: Int
 
-        init(inner: SafePoint, label: Int) { self.inner = inner; self.label = label }
-        init(copying other: Storage) { self.inner = other.inner; self.label = other.label }
+        init(inner: SafePoint, label: Int) {
+            self.inner = inner
+            self.label = label
+        }
+        init(copying other: Storage) {
+            self.inner = other.inner
+            self.label = other.label
+        }
     }
 
     private var storage: Storage

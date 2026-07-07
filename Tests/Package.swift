@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "testing",
     platforms: [
-        .macOS(.v26),
+        .macOS(.v26)
     ],
     dependencies: [
         .package(path: ".."),
@@ -19,7 +19,7 @@ let package = Package(
                 .product(name: "Testing", package: "swift-testing"),
             ],
             path: "Copy on Write Performance Tests"
-        ),
+        )
     ],
     swiftLanguageModes: [.v6]
 )

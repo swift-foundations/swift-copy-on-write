@@ -68,15 +68,55 @@
 /// - **Lazy copying**: Storage only copied when needed
 /// - **Sendable by default**: Generated Storage is `@unchecked Sendable`
 ///
-@attached(member, names: named(Storage), named(storage), named(ensureUnique), named(init), named(isIdentical))
+@attached(
+    member,
+    names: named(Storage),
+    named(storage),
+    named(ensureUnique),
+    named(init),
+    named(isIdentical)
+)
 @attached(memberAttribute)
-@attached(extension, conformances: Equatable, Hashable, Decodable, Encodable, CustomStringConvertible, names: named(==), named(hash), named(encode), named(init), named(CodingKeys), named(description))
+@attached(
+    extension,
+    conformances: Equatable,
+    Hashable,
+    Decodable,
+    Encodable,
+    CustomStringConvertible,
+    names: named(==),
+    named(hash),
+    named(encode),
+    named(init),
+    named(CodingKeys),
+    named(description)
+)
 public macro `Copy on Write`() = #externalMacro(module: "Copy_on_Write_Macros", type: "CoWMacro")
 
 /// Short alias for `@Copy on Write` macro.
-@attached(member, names: named(Storage), named(storage), named(ensureUnique), named(init), named(isIdentical))
+@attached(
+    member,
+    names: named(Storage),
+    named(storage),
+    named(ensureUnique),
+    named(init),
+    named(isIdentical)
+)
 @attached(memberAttribute)
-@attached(extension, conformances: Equatable, Hashable, Decodable, Encodable, CustomStringConvertible, names: named(==), named(hash), named(encode), named(init), named(CodingKeys), named(description))
+@attached(
+    extension,
+    conformances: Equatable,
+    Hashable,
+    Decodable,
+    Encodable,
+    CustomStringConvertible,
+    names: named(==),
+    named(hash),
+    named(encode),
+    named(init),
+    named(CodingKeys),
+    named(description)
+)
 public macro CoW() = #externalMacro(module: "Copy_on_Write_Macros", type: "CoWMacro")
 
 /// Internal macro applied to properties by @`Copy on Write` to provide accessor implementations.
@@ -85,4 +125,5 @@ public macro CoW() = #externalMacro(module: "Copy_on_Write_Macros", type: "CoWMa
 /// Generates `_read/_modify` accessors for `var` properties (enabling in-place mutation
 /// and composable `_modify` chains), and `_read` for `let` properties.
 @attached(accessor, names: named(_read), named(_modify))
-public macro _CoWProperty() = #externalMacro(module: "Copy_on_Write_Macros", type: "CoWPropertyMacro")
+public macro _CoWProperty() =
+    #externalMacro(module: "Copy_on_Write_Macros", type: "CoWPropertyMacro")
