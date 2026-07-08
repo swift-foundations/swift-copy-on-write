@@ -343,7 +343,9 @@ extension CoWMacro: MemberAttributeMacro {
 
 // MARK: - CoWPropertyMacro (Accessor Macro)
 
-public struct CoWPropertyMacro: AccessorMacro {
+public struct CoWPropertyMacro {}
+
+extension CoWPropertyMacro: AccessorMacro {
     public static func expansion(
         of node: AttributeSyntax,
         providingAccessorsOf declaration: some DeclSyntaxProtocol,
@@ -687,7 +689,9 @@ enum CoWMacroError: Error, CustomStringConvertible {
     case onlyApplicableToStruct
     case noStoredProperties
     case noVarProperties
+}
 
+extension CoWMacroError {
     var description: String {
         switch self {
         case .onlyApplicableToStruct:
