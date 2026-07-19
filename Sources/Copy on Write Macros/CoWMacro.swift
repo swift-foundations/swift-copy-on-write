@@ -2,6 +2,7 @@
 // Implementation of the @CoW macro
 
 import SwiftCompilerPlugin
+import SwiftDiagnostics
 import SwiftSyntax
 import SwiftSyntaxMacros
 
@@ -46,8 +47,37 @@ extension CoWMacro: MemberMacro {
             throw CoWMacroError.noVarProperties
         }
 
+        // Generated Storage is only marked `@unchecked Sendable` when the struct
+        // itself explicitly opts in by declaring `Sendable` conformance. Without
+        // this gate, EVERY @CoW struct is implicitly Sendable (a struct whose
+        // only stored property is an `@unchecked Sendable` class auto-derives
+        // Sendable), laundering non-Sendable property types through strict
+        // concurrency regardless of the author's intent. [F-001]
+        let inheritedTypeNames =
+            structDecl.inheritanceClause?.inheritedTypes.map {
+                $0.type.trimmedDescription
+            } ?? []
+        let wantsSendable = inheritedTypeNames.contains("Sendable")
+
+        // Best-effort diagnostic: `@unchecked Sendable` asserts thread-safety the
+        // macro cannot verify from syntax alone. Function-typed properties are a
+        // common, syntactically-detectable footgun (closures are essentially
+        // never safe to share across isolation domains), so flag them.
+        if wantsSendable {
+            for property in varProperties where containsFunctionType(property.type) {
+                context.diagnose(
+                    Diagnostic(
+                        node: property.type,
+                        message: CoWMacroDiagnostic.uncheckedSendableFunctionProperty(
+                            propertyName: property.name
+                        )
+                    )
+                )
+            }
+        }
+
         // Generate the Storage class (only var properties)
-        let storageClass = generateStorageClass(properties: varProperties)
+        let storageClass = generateStorageClass(properties: varProperties, isSendable: wantsSendable)
 
         // Generate the storage property
         let storageProperty: DeclSyntax = "private var storage: Storage"
@@ -525,6 +555,32 @@ private func isOptionalType(_ type: TypeSyntax) -> Bool {
     return false
 }
 
+/// Check whether a type is (or wraps) a function/closure type.
+/// Unwraps `Optional`, implicitly-unwrapped optional, attributed, and
+/// single-element tuple wrappers to find a `FunctionTypeSyntax` underneath.
+/// Used as a best-effort, syntax-only signal that `@unchecked Sendable`
+/// may be unsound: closures are essentially never safe to share across
+/// isolation domains, and the macro has no semantic type information to
+/// verify otherwise. [F-001]
+private func containsFunctionType(_ type: TypeSyntax) -> Bool {
+    if type.is(FunctionTypeSyntax.self) {
+        return true
+    }
+    if let optional = type.as(OptionalTypeSyntax.self) {
+        return containsFunctionType(optional.wrappedType)
+    }
+    if let iuo = type.as(ImplicitlyUnwrappedOptionalTypeSyntax.self) {
+        return containsFunctionType(iuo.wrappedType)
+    }
+    if let attributed = type.as(AttributedTypeSyntax.self) {
+        return containsFunctionType(attributed.baseType)
+    }
+    if let tuple = type.as(TupleTypeSyntax.self), tuple.elements.count == 1 {
+        return containsFunctionType(tuple.elements[tuple.elements.startIndex].type)
+    }
+    return false
+}
+
 // MARK: - Code Generation
 
 /// Safely convert TypeSyntax to a clean string representation.
@@ -606,11 +662,15 @@ private func cleanExprString(_ expr: ExprSyntax) -> String {
     return result
 }
 
-private func generateStorageClass(properties: [StoredProperty]) -> DeclSyntax {
+private func generateStorageClass(properties: [StoredProperty], isSendable: Bool) -> DeclSyntax {
     // Generate storage properties
     let storageProperties = properties.map { prop -> String in
         "var \(prop.name): \(cleanTypeString(prop.type))"
     }.joined(separator: "\n        ")
+
+    // `@unchecked Sendable` is opt-in: only emitted when the struct explicitly
+    // declares `Sendable` conformance. [F-001]
+    let sendableConformance = isSendable ? ": @unchecked Sendable" : ""
 
     // Generate primary initializer parameters
     // Optional types without explicit defaults get `= nil`
@@ -637,7 +697,7 @@ private func generateStorageClass(properties: [StoredProperty]) -> DeclSyntax {
 
     return """
         // MARK: - CoW Generated Storage
-        private final class Storage: @unchecked Sendable {
+        private final class Storage\(raw: sendableConformance) {
             \(raw: storageProperties)
 
             init(\(raw: initParams)) {
@@ -705,4 +765,30 @@ extension CoWMacroError {
                 "@CoW requires at least one 'var' property. Change 'let' to 'var' or use 'private(set) var' for read-only properties."
         }
     }
+}
+
+// MARK: - Diagnostics
+
+/// Best-effort diagnostics emitted during macro expansion. Unlike
+/// `CoWMacroError`, these do not stop expansion — they warn about a
+/// generated-code shape the macro cannot fully verify from syntax alone.
+struct CoWMacroDiagnostic: DiagnosticMessage {
+    private let propertyName: String
+
+    static func uncheckedSendableFunctionProperty(propertyName: String) -> CoWMacroDiagnostic {
+        CoWMacroDiagnostic(propertyName: propertyName)
+    }
+
+    var message: String {
+        "Generated Storage is '@unchecked Sendable' because this struct declares 'Sendable', "
+            + "but property '\(propertyName)' has a function type. Closures are not verified "
+            + "Sendable-safe by the compiler — confirm captured state is safe to share across "
+            + "isolation domains, or remove the 'Sendable' conformance."
+    }
+
+    var diagnosticID: MessageID {
+        MessageID(domain: "CoWMacro", id: "uncheckedSendableFunctionProperty")
+    }
+
+    var severity: DiagnosticSeverity { .warning }
 }

@@ -36,7 +36,11 @@
 ///
 /// ```swift
 /// public struct Context {
-///     private final class Storage: @unchecked Sendable {
+///     // `Storage` is `@unchecked Sendable` only when `Context` itself
+///     // explicitly declares `Sendable` conformance. Without that opt-in,
+///     // `Storage` carries no Sendable conformance at all, so `Context`
+///     // is not implicitly Sendable either.
+///     private final class Storage {
 ///         var layoutBox: Rectangle
 ///         var style: Style
 ///         var counter: Int
@@ -66,7 +70,13 @@
 /// - **Stack efficiency**: Only 8 bytes on stack (single reference)
 /// - **Value semantics**: Mutations don't affect other copies
 /// - **Lazy copying**: Storage only copied when needed
-/// - **Sendable by default**: Generated Storage is `@unchecked Sendable`
+/// - **Opt-in Sendable**: Generated Storage is `@unchecked Sendable` only when
+///   the struct explicitly declares `Sendable` conformance. This is a
+///   deliberate opt-in: without it, `Storage` (and therefore the struct) is
+///   not Sendable, since the macro has no way to verify from syntax alone
+///   that every stored property is actually safe to share across isolation
+///   domains. Declare `Sendable` on structs whose properties you have
+///   verified are safe.
 ///
 @attached(
     member,

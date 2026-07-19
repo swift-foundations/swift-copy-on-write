@@ -1,6 +1,7 @@
 // CoWMacroTests.swift
 
 import Copy_on_Write
+import Copy_on_Write_Macros
 import Foundation
 import Testing
 
@@ -166,6 +167,22 @@ struct InnerWithArray {
 struct OuterWithArray {
     var nested: InnerWithArray
     var name: String
+}
+
+// MARK: - Sendable Gating Fixtures (F-001)
+
+// No explicit `Sendable` declaration — generated Storage must NOT be
+// `@unchecked Sendable`, so this struct must not be implicitly Sendable.
+@CoW
+struct SendableGatingOptedOut {
+    var value: Int
+}
+
+// Explicit `Sendable` declaration — generated Storage IS `@unchecked
+// Sendable`, so this struct is Sendable.
+@CoW
+struct SendableGatingOptedIn: Sendable {
+    var value: Int
 }
 
 // MARK: - Tests
@@ -753,3 +770,41 @@ struct CopyOnWriteTests {
         #expect(s2.nested.items == [10, 20, 30])
     }
 }
+
+// MARK: - Sendable Gating Tests (F-001)
+//
+// Generated Storage used to be unconditionally `@unchecked Sendable`,
+// meaning every @CoW struct was implicitly Sendable regardless of the
+// author's intent — a struct whose only stored property is an
+// `@unchecked Sendable` class auto-derives Sendable, laundering
+// non-Sendable property types through strict concurrency. Storage is now
+// `@unchecked Sendable` only when the struct explicitly declares
+// `Sendable` conformance.
+
+extension CoWMacro {
+    @Suite struct `Sendable Gating` {
+        @Suite struct Unit {}
+    }
+}
+
+extension CoWMacro.`Sendable Gating`.Unit {
+    /// Overload-resolution probe for `Sendable` conformance: the
+    /// `Sendable`-constrained overload is more specialized and wins
+    /// whenever `T` actually conforms, giving a runtime-observable `Bool`
+    /// for a compile-time-checked marker-protocol conformance. (`Sendable`
+    /// is a marker protocol with no witness table, so a dynamic `is Sendable`
+    /// cast is not available — this is the standard workaround.)
+    private static func isSendableType<T>(_ type: T.Type) -> Bool { false }
+    private static func isSendableType<T: Sendable>(_ type: T.Type) -> Bool { true }
+
+    @Test
+    func `struct without a Sendable declaration is not Sendable`() {
+        #expect(!Self.isSendableType(SendableGatingOptedOut.self))
+    }
+
+    @Test
+    func `struct with an explicit Sendable declaration is Sendable`() {
+        #expect(Self.isSendableType(SendableGatingOptedIn.self))
+    }
+}
+
