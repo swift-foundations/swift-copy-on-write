@@ -137,7 +137,7 @@ struct WithValueGeneric {
     var optionalSize: ValueGeneric<2>?
 }
 
-// MARK: - Nested _modify Composition Types (Copy-Out Fix Validation)
+// MARK: - Nested _modify Composition Types
 
 // Triple-nested CoW: exercises three chained _modify coroutines
 @CoW
@@ -629,23 +629,21 @@ struct CopyOnWriteTests {
         #expect(s2.size.value == 42)
     }
 
-    // MARK: - Nested _modify Composition Tests (Copy-Out Fix Validation)
+    // MARK: - Nested _modify Composition Tests
     //
-    // These tests exercise the copy-out/yield/write-back pattern in _modify.
-    // The naive implementation (`yield &storage.property`) yields a pointer
-    // directly into heap storage. When @CoW types nest, the inner _modify's
-    // ensureUnique() can reallocate while the outer's heap pointer is live,
-    // producing a dangling pointer (SIGSEGV in debug builds).
-    //
-    // The fix copies to a stack local, yields the local, then writes back.
-    // These tests verify both safety and correctness of that pattern.
+    // These tests exercise direct-yield `_modify` composition
+    // (`yield &storage.property`, matching a plain stored-property
+    // accessor — see [F-002]). When @CoW types nest, each level's
+    // `_modify` coroutine yields straight into its own storage; the inner
+    // `_modify`'s `ensureUnique()` runs while the outer coroutine's yield is
+    // still live. These tests verify both safety and correctness of that
+    // composition across multiple levels of nesting and sharing.
 
     @Test
     func `Nested in-place mutation through _modify chain`() {
         var outer = Outer(inner: Inner(value: 42), label: "test")
 
         // Chains outer._modify(inner) → inner._modify(value).
-        // Without the copy-out fix this dereferences freed heap memory.
         outer.inner.value = 100
 
         #expect(outer.inner.value == 100)
@@ -662,7 +660,7 @@ struct CopyOnWriteTests {
         // Critical path: outer1._modify(inner) calls ensureUnique (copies
         // because shared), then inner._modify(value) calls inner's
         // ensureUnique. Both ensureUnique calls run during a live _modify
-        // coroutine — the copy-out pattern keeps the yield on the stack.
+        // coroutine.
         outer1.inner.value = 999
 
         #expect(outer1.inner.value == 999)
@@ -808,3 +806,499 @@ extension CoWMacro.`Sendable Gating`.Unit {
     }
 }
 
+// MARK: - Nested Modify Cost Fixtures (F-002)
+//
+// Hand-rolled naive-pattern (`yield &storage.prop`, no copy-out) reference
+// implementations, used as a same-process timing baseline. Kept intentionally
+// separate from the @CoW macro output below so the comparison is meaningful
+// even if the macro's generated shape changes.
+
+private struct NestedModifyCostNaivePoint {
+    private final class Storage {
+        var x: Int
+        init(x: Int) { self.x = x }
+        init(copying other: Storage) { self.x = other.x }
+    }
+    private var storage: Storage
+    init(x: Int) { storage = Storage(x: x) }
+    private mutating func ensureUnique() {
+        if !isKnownUniquelyReferenced(&storage) { storage = Storage(copying: storage) }
+    }
+    var x: Int {
+        _read { yield storage.x }
+        _modify {
+            ensureUnique()
+            yield &storage.x
+        }
+    }
+}
+
+private struct NestedModifyCostNaiveOuter {
+    private final class Storage {
+        var inner: NestedModifyCostNaivePoint
+        init(inner: NestedModifyCostNaivePoint) { self.inner = inner }
+        init(copying other: Storage) { self.inner = other.inner }
+    }
+    private var storage: Storage
+    init(inner: NestedModifyCostNaivePoint) { storage = Storage(inner: inner) }
+    private mutating func ensureUnique() {
+        if !isKnownUniquelyReferenced(&storage) { storage = Storage(copying: storage) }
+    }
+    var inner: NestedModifyCostNaivePoint {
+        _read { yield storage.inner }
+        _modify {
+            ensureUnique()
+            yield &storage.inner
+        }
+    }
+}
+
+@CoW
+struct NestedModifyCostMacroInner {
+    var x: Int
+}
+
+@CoW
+struct NestedModifyCostMacroOuter {
+    var inner: NestedModifyCostMacroInner
+}
+
+private struct NestedModifyCostNaiveArrayPoint {
+    private final class Storage {
+        var items: [Int]
+        init(items: [Int]) { self.items = items }
+        init(copying other: Storage) { self.items = other.items }
+    }
+    private var storage: Storage
+    init(items: [Int]) { storage = Storage(items: items) }
+    private mutating func ensureUnique() {
+        if !isKnownUniquelyReferenced(&storage) { storage = Storage(copying: storage) }
+    }
+    var items: [Int] {
+        _read { yield storage.items }
+        _modify {
+            ensureUnique()
+            yield &storage.items
+        }
+    }
+}
+
+private struct NestedModifyCostNaiveArrayOuter {
+    private final class Storage {
+        var inner: NestedModifyCostNaiveArrayPoint
+        init(inner: NestedModifyCostNaiveArrayPoint) { self.inner = inner }
+        init(copying other: Storage) { self.inner = other.inner }
+    }
+    private var storage: Storage
+    init(inner: NestedModifyCostNaiveArrayPoint) { storage = Storage(inner: inner) }
+    private mutating func ensureUnique() {
+        if !isKnownUniquelyReferenced(&storage) { storage = Storage(copying: storage) }
+    }
+    var inner: NestedModifyCostNaiveArrayPoint {
+        _read { yield storage.inner }
+        _modify {
+            ensureUnique()
+            yield &storage.inner
+        }
+    }
+}
+
+@CoW
+struct NestedModifyCostMacroArrayInner {
+    var items: [Int]
+}
+
+@CoW
+struct NestedModifyCostMacroArrayOuter {
+    var inner: NestedModifyCostMacroArrayInner
+}
+
+// MARK: - Nested Modify Copy-Counting Fixtures (F-002)
+//
+// A deterministic, non-timing discriminator for the copy-out vs. direct-yield
+// `_modify` pattern. `CopyCountingPoint`'s `Storage` counts its own copies via
+// `init(copying:)`; the counter is threaded through as an instance (a
+// `final class` box), not global/static state, so concurrently executing
+// tests cannot interfere with each other's counts. Both outer wrappers below
+// are otherwise identical -- only their `inner` accessor's `_modify` pattern
+// differs -- so any difference in observed copy count is attributable to
+// that one pattern choice, not to incidental structural differences.
+
+private final class CopyCountingCounter {
+    private(set) var count = 0
+    func increment() { count += 1 }
+}
+
+private struct CopyCountingPoint {
+    fileprivate final class Storage {
+        var x: Int
+        private let counter: CopyCountingCounter
+        init(x: Int, counter: CopyCountingCounter) {
+            self.x = x
+            self.counter = counter
+        }
+        init(copying other: Storage) {
+            self.x = other.x
+            self.counter = other.counter
+            self.counter.increment()
+        }
+    }
+    fileprivate var storage: Storage
+    init(x: Int, counter: CopyCountingCounter) { storage = Storage(x: x, counter: counter) }
+    private mutating func ensureUnique() {
+        if !isKnownUniquelyReferenced(&storage) { storage = Storage(copying: storage) }
+    }
+    var x: Int {
+        _read { yield storage.x }
+        _modify {
+            ensureUnique()
+            yield &storage.x
+        }
+    }
+}
+
+/// Outer wrapper using the CURRENT, fixed direct-yield `_modify` pattern —
+/// mirrors the macro's post-[F-002] generated shape exactly.
+private struct CopyCountingDirectYieldOuter {
+    private final class Storage {
+        var inner: CopyCountingPoint
+        init(inner: CopyCountingPoint) { self.inner = inner }
+        init(copying other: Storage) { self.inner = other.inner }
+    }
+    private var storage: Storage
+    init(inner: CopyCountingPoint) { storage = Storage(inner: inner) }
+    private mutating func ensureUnique() {
+        if !isKnownUniquelyReferenced(&storage) { storage = Storage(copying: storage) }
+    }
+    var inner: CopyCountingPoint {
+        _read { yield storage.inner }
+        _modify {
+            ensureUnique()
+            yield &storage.inner
+        }
+    }
+}
+
+/// Outer wrapper using the REMOVED, pre-[F-002] copy-out `_modify` pattern
+/// (`var value = storage.prop; yield &value; storage.prop = value`) --
+/// reproduces the redundant strong reference the macro used to hold live
+/// across a nested mutation's yield.
+private struct CopyCountingCopyOutOuter {
+    private final class Storage {
+        var inner: CopyCountingPoint
+        init(inner: CopyCountingPoint) { self.inner = inner }
+        init(copying other: Storage) { self.inner = other.inner }
+    }
+    private var storage: Storage
+    init(inner: CopyCountingPoint) { storage = Storage(inner: inner) }
+    private mutating func ensureUnique() {
+        if !isKnownUniquelyReferenced(&storage) { storage = Storage(copying: storage) }
+    }
+    var inner: CopyCountingPoint {
+        _read { yield storage.inner }
+        _modify {
+            ensureUnique()
+            var value = storage.inner
+            yield &value
+            storage.inner = value
+        }
+    }
+}
+
+/// Array-backed variant of `CopyCountingPoint`: the inner storage holds an
+/// `[Int]`, so each spurious `Storage` copy under the copy-out pattern also
+/// copies an O(current size) buffer — the mechanism that turned an O(n)
+/// nested append sequence into O(n^2) element traffic pre-[F-002]. The
+/// counter counts `Storage` copies (the deterministic, capacity-independent
+/// signal); the buffer cost per spurious copy follows from the array size.
+private struct CopyCountingArrayPoint {
+    fileprivate final class Storage {
+        var items: [Int]
+        private let counter: CopyCountingCounter
+        init(items: [Int], counter: CopyCountingCounter) {
+            self.items = items
+            self.counter = counter
+        }
+        init(copying other: Storage) {
+            self.items = other.items
+            self.counter = other.counter
+            self.counter.increment()
+        }
+    }
+    fileprivate var storage: Storage
+    init(items: [Int], counter: CopyCountingCounter) {
+        storage = Storage(items: items, counter: counter)
+    }
+    private mutating func ensureUnique() {
+        if !isKnownUniquelyReferenced(&storage) { storage = Storage(copying: storage) }
+    }
+    var items: [Int] {
+        _read { yield storage.items }
+        _modify {
+            ensureUnique()
+            yield &storage.items
+        }
+    }
+}
+
+/// Outer wrapper over `CopyCountingArrayPoint` using the CURRENT, fixed
+/// direct-yield `_modify` pattern (post-[F-002] macro shape).
+private struct CopyCountingArrayDirectYieldOuter {
+    private final class Storage {
+        var inner: CopyCountingArrayPoint
+        init(inner: CopyCountingArrayPoint) { self.inner = inner }
+        init(copying other: Storage) { self.inner = other.inner }
+    }
+    private var storage: Storage
+    init(inner: CopyCountingArrayPoint) { storage = Storage(inner: inner) }
+    private mutating func ensureUnique() {
+        if !isKnownUniquelyReferenced(&storage) { storage = Storage(copying: storage) }
+    }
+    var inner: CopyCountingArrayPoint {
+        _read { yield storage.inner }
+        _modify {
+            ensureUnique()
+            yield &storage.inner
+        }
+    }
+}
+
+/// Outer wrapper over `CopyCountingArrayPoint` using the REMOVED, pre-[F-002]
+/// copy-out `_modify` pattern.
+private struct CopyCountingArrayCopyOutOuter {
+    private final class Storage {
+        var inner: CopyCountingArrayPoint
+        init(inner: CopyCountingArrayPoint) { self.inner = inner }
+        init(copying other: Storage) { self.inner = other.inner }
+    }
+    private var storage: Storage
+    init(inner: CopyCountingArrayPoint) { storage = Storage(inner: inner) }
+    private mutating func ensureUnique() {
+        if !isKnownUniquelyReferenced(&storage) { storage = Storage(copying: storage) }
+    }
+    var inner: CopyCountingArrayPoint {
+        _read { yield storage.inner }
+        _modify {
+            ensureUnique()
+            var value = storage.inner
+            yield &value
+            storage.inner = value
+        }
+    }
+}
+
+// MARK: - Nested Modify Cost Tests (F-002)
+//
+// [F-002] The old copy-out `_modify` pattern (`var value = storage.prop;
+// yield &value; storage.prop = value`) held a redundant strong reference to
+// `storage.prop`'s class-backed storage for the full duration of the yield.
+// For a NESTED @CoW property (or any class-backed collection property), this
+// defeated the inner type's OWN `isKnownUniquelyReferenced` check, forcing a
+// full copy on every nested mutation even when nothing was externally
+// shared -- an O(n) array append became O(n^2) under repeated nested
+// mutation. The generated `_modify` now yields `&storage.prop` directly
+// (matching a plain stored-property accessor), eliminating the redundant
+// reference.
+//
+// Both cases (scalar nested mutation and nested collection append) are
+// asserted deterministically: a same-instance copy counter (see the
+// copy-counting fixtures above) proves the mechanism directly -- direct
+// yield forces zero spurious inner-storage copies over N
+// uniquely-referenced nested mutations, while the removed copy-out pattern
+// forces exactly N (asserted at two sizes for the collection case, showing
+// the spurious-copy count grows linearly in N, each such copy dragging an
+// O(current size) buffer copy with it -- the O(n^2) mechanism). These
+// replace earlier timing-ratio assertions that were each observed to spike
+// above their budget under heavy machine load (scalar: 2.16 vs 1.8 budget;
+// collection: 3.34 vs 3.0 budget -- a same-process, self-calibrating ratio
+// is still far more robust than an absolute wall-clock threshold, but it
+// is still a timing measurement and can flake under extreme load). Both
+// timing comparisons are retained below purely as informational output,
+// because they exercise the real macro-generated types end-to-end.
+
+extension CoWMacro {
+    @Suite struct `Nested Modify Cost` {
+        @Suite struct `Edge Case` {}
+    }
+}
+
+extension CoWMacro.`Nested Modify Cost` {
+    fileprivate static func seconds(_ duration: Duration) -> Double {
+        let components = duration.components
+        return Double(components.seconds) + Double(components.attoseconds) / 1e18
+    }
+}
+
+extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
+    @Test
+    func `nested unique mutation spurious inner storage copy count is deterministic`() {
+        let iterations = 25
+
+        // Direct yield (current, post-[F-002] macro shape): a
+        // uniquely-referenced outer, mutated repeatedly through a nested
+        // property, must never force a spurious copy of the inner storage.
+        let directYieldCounter = CopyCountingCounter()
+        var directYieldOuter = CopyCountingDirectYieldOuter(
+            inner: CopyCountingPoint(x: 0, counter: directYieldCounter))
+        for i in 0..<iterations { directYieldOuter.inner.x = i }
+        #expect(directYieldOuter.inner.x == iterations - 1)
+        #expect(
+            directYieldCounter.count == 0,
+            """
+            direct-yield _modify (matching the current, post-F-002 macro shape) forced \
+            \(directYieldCounter.count) spurious inner-storage copies over \(iterations) \
+            uniquely-referenced nested mutations; expected 0
+            """
+        )
+
+        // Copy-out (removed, pre-[F-002] macro shape): the redundant strong
+        // reference held live across the yield defeats the inner storage's
+        // own uniqueness check, forcing exactly one spurious copy per
+        // mutation.
+        let copyOutCounter = CopyCountingCounter()
+        var copyOutOuter = CopyCountingCopyOutOuter(
+            inner: CopyCountingPoint(x: 0, counter: copyOutCounter))
+        for i in 0..<iterations { copyOutOuter.inner.x = i }
+        #expect(copyOutOuter.inner.x == iterations - 1)
+        #expect(
+            copyOutCounter.count == iterations,
+            """
+            copy-out _modify (matching the removed, pre-F-002 macro shape) forced \
+            \(copyOutCounter.count) spurious inner-storage copies over \(iterations) \
+            uniquely-referenced nested mutations; expected exactly \(iterations) (one per \
+            mutation), confirming this fixture reproduces the mechanism the fix removed
+            """
+        )
+    }
+
+    @Test
+    func `nested unique mutation timing vs a naive baseline is informational only`() {
+        let iterations = 50_000
+        let clock = ContinuousClock()
+
+        // Warmup both implementations before measuring.
+        var warmupNaive = NestedModifyCostNaiveOuter(inner: NestedModifyCostNaivePoint(x: 0))
+        for i in 0..<2_000 { warmupNaive.inner.x = i }
+        var warmupMacro = NestedModifyCostMacroOuter(inner: NestedModifyCostMacroInner(x: 0))
+        for i in 0..<2_000 { warmupMacro.inner.x = i }
+
+        var naiveResult = 0
+        let naiveDuration = clock.measure {
+            var outer = NestedModifyCostNaiveOuter(inner: NestedModifyCostNaivePoint(x: 0))
+            for i in 0..<iterations { outer.inner.x = i }
+            naiveResult = outer.inner.x
+        }
+        #expect(naiveResult == iterations - 1)
+
+        var macroResult = 0
+        let macroDuration = clock.measure {
+            var outer = NestedModifyCostMacroOuter(inner: NestedModifyCostMacroInner(x: 0))
+            for i in 0..<iterations { outer.inner.x = i }
+            macroResult = outer.inner.x
+        }
+        #expect(macroResult == iterations - 1)
+
+        // Informational only -- NOT asserted. The deterministic copy-count
+        // test above is the discriminating assertion for this scalar case;
+        // this measurement is retained purely as diagnostic output because
+        // it exercises the real macro-generated type end-to-end (the
+        // copy-count fixtures above are a faithful hand-rolled
+        // reproduction of both `_modify` shapes, not the macro's actual
+        // generated code). A same-process, self-calibrating ratio was
+        // observed to spike above a fixed budget under heavy ambient
+        // machine load, which is why it no longer backs an assertion here.
+        let ratio =
+            CoWMacro.`Nested Modify Cost`.seconds(macroDuration)
+            / CoWMacro.`Nested Modify Cost`.seconds(naiveDuration)
+        print(
+            "[informational] nested unique mutation: macro-generated took \(ratio)x the naive baseline"
+        )
+    }
+
+    @Test
+    func `nested collection append spurious inner storage copy count scales linearly not quadratically`() {
+        // Asserted at two sizes: the spurious-copy count must be exactly 0
+        // under direct yield (current, post-F-002 macro shape) and exactly
+        // n under copy-out (removed, pre-F-002 shape) at BOTH sizes --
+        // i.e. the copy-out pattern's spurious-copy count grows linearly
+        // in n (4x the appends -> 4x the copies, each copy dragging an
+        // O(current size) buffer copy with it: the O(n^2) element-traffic
+        // mechanism), while direct yield stays at zero regardless of n.
+        for iterations in [25, 100] {
+            let directYieldCounter = CopyCountingCounter()
+            var directYieldOuter = CopyCountingArrayDirectYieldOuter(
+                inner: CopyCountingArrayPoint(items: [], counter: directYieldCounter))
+            for i in 0..<iterations { directYieldOuter.inner.items.append(i) }
+            #expect(directYieldOuter.inner.items.count == iterations)
+            #expect(
+                directYieldCounter.count == 0,
+                """
+                direct-yield _modify (matching the current, post-F-002 macro shape) forced \
+                \(directYieldCounter.count) spurious inner-storage copies over \(iterations) \
+                uniquely-referenced nested appends; expected 0
+                """
+            )
+
+            let copyOutCounter = CopyCountingCounter()
+            var copyOutOuter = CopyCountingArrayCopyOutOuter(
+                inner: CopyCountingArrayPoint(items: [], counter: copyOutCounter))
+            for i in 0..<iterations { copyOutOuter.inner.items.append(i) }
+            #expect(copyOutOuter.inner.items.count == iterations)
+            #expect(
+                copyOutCounter.count == iterations,
+                """
+                copy-out _modify (matching the removed, pre-F-002 macro shape) forced \
+                \(copyOutCounter.count) spurious inner-storage copies over \(iterations) \
+                uniquely-referenced nested appends; expected exactly \(iterations) (one per \
+                append, each copying the whole O(current size) buffer), confirming this \
+                fixture reproduces the O(n^2) mechanism the fix removed
+                """
+            )
+        }
+    }
+
+    @Test
+    func `nested collection append timing vs a naive baseline is informational only`() {
+        let iterations = 4_000
+        let clock = ContinuousClock()
+
+        var warmupNaive = NestedModifyCostNaiveArrayOuter(
+            inner: NestedModifyCostNaiveArrayPoint(items: []))
+        for i in 0..<200 { warmupNaive.inner.items.append(i) }
+        var warmupMacro = NestedModifyCostMacroArrayOuter(
+            inner: NestedModifyCostMacroArrayInner(items: []))
+        for i in 0..<200 { warmupMacro.inner.items.append(i) }
+
+        var naiveCount = 0
+        let naiveDuration = clock.measure {
+            var outer = NestedModifyCostNaiveArrayOuter(
+                inner: NestedModifyCostNaiveArrayPoint(items: []))
+            for i in 0..<iterations { outer.inner.items.append(i) }
+            naiveCount = outer.inner.items.count
+        }
+        #expect(naiveCount == iterations)
+
+        var macroCount = 0
+        let macroDuration = clock.measure {
+            var outer = NestedModifyCostMacroArrayOuter(
+                inner: NestedModifyCostMacroArrayInner(items: []))
+            for i in 0..<iterations { outer.inner.items.append(i) }
+            macroCount = outer.inner.items.count
+        }
+        #expect(macroCount == iterations)
+
+        // Informational only -- NOT asserted. The deterministic copy-count
+        // test above is the discriminating assertion for the collection
+        // case; this measurement is retained purely as diagnostic output
+        // because it exercises the real macro-generated type end-to-end.
+        // The former 3.0x-budget ratio assertion here was observed to
+        // breach its budget once (3.34x) under heavy ambient machine load,
+        // the same false-fail class as the scalar case's removed assertion.
+        let ratio =
+            CoWMacro.`Nested Modify Cost`.seconds(macroDuration)
+            / CoWMacro.`Nested Modify Cost`.seconds(naiveDuration)
+        print(
+            "[informational] nested collection append: macro-generated took \(ratio)x the naive baseline"
+        )
+    }
+}

@@ -400,14 +400,22 @@ extension CoWPropertyMacro: AccessorMacro {
                 """
             ]
         } else {
-            // Read-write accessors for var properties
+            // Read-write accessors for var properties.
             // _read yields a borrowed reference (avoids copying collections).
-            // _modify uses copy-out/yield/write-back to ensure the yielded
-            // pointer is always to a stack-local, never into heap storage.
-            // This is required for safe composition: when a @CoW property is
-            // itself a @CoW type, a nested ensureUnique() could reallocate
-            // inner storage while an outer _modify's heap pointer is live,
-            // producing a dangling pointer (debug-mode SIGSEGV).
+            // _modify yields a direct reference into storage, matching a
+            // plain stored-property accessor. [F-002] A prior copy-out
+            // variant here (`var value = storage.prop; yield &value;
+            // storage.prop = value`) held a redundant strong reference to
+            // storage.prop's class-backed representation for the full
+            // duration of the yield. For a NESTED @CoW property (or any
+            // class-backed collection property), that redundant reference
+            // defeated the property type's OWN `isKnownUniquelyReferenced`
+            // check, forcing a full copy on every nested mutation even when
+            // nothing was externally shared -- turning an O(n) collection
+            // append into O(n^2) under repeated nested mutation. Direct
+            // yield avoids the redundant reference; nested/composed
+            // mutation safety is covered by
+            // `CoWMacroTests.swift`'s "Nested _modify Composition Tests".
             return [
                 """
                 _read {
@@ -417,9 +425,7 @@ extension CoWPropertyMacro: AccessorMacro {
                 """
                 _modify {
                     ensureUnique()
-                    var value = storage.\(raw: identifier)
-                    yield &value
-                    storage.\(raw: identifier) = value
+                    yield &storage.\(raw: identifier)
                 }
                 """,
             ]
