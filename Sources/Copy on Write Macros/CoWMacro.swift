@@ -77,7 +77,10 @@ extension CoWMacro: MemberMacro {
         }
 
         // Generate the Storage class (only var properties)
-        let storageClass = generateStorageClass(properties: varProperties, isSendable: wantsSendable)
+        let storageClass = generateStorageClass(
+            properties: varProperties,
+            isSendable: wantsSendable
+        )
 
         // Generate the storage property
         let storageProperty: DeclSyntax = "private var storage: Storage"

@@ -1139,7 +1139,8 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
         // property, must never force a spurious copy of the inner storage.
         let directYieldCounter = CopyCountingCounter()
         var directYieldOuter = CopyCountingDirectYieldOuter(
-            inner: CopyCountingPoint(x: 0, counter: directYieldCounter))
+            inner: CopyCountingPoint(x: 0, counter: directYieldCounter)
+        )
         for i in 0..<iterations { directYieldOuter.inner.x = i }
         #expect(directYieldOuter.inner.x == iterations - 1)
         #expect(
@@ -1157,7 +1158,8 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
         // mutation.
         let copyOutCounter = CopyCountingCounter()
         var copyOutOuter = CopyCountingCopyOutOuter(
-            inner: CopyCountingPoint(x: 0, counter: copyOutCounter))
+            inner: CopyCountingPoint(x: 0, counter: copyOutCounter)
+        )
         for i in 0..<iterations { copyOutOuter.inner.x = i }
         #expect(copyOutOuter.inner.x == iterations - 1)
         #expect(
@@ -1216,7 +1218,9 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
     }
 
     @Test
-    func `nested collection append spurious inner storage copy count scales linearly not quadratically`() {
+    func
+        `nested collection append spurious inner storage copy count scales linearly not quadratically`()
+    {
         // Asserted at two sizes: the spurious-copy count must be exactly 0
         // under direct yield (current, post-F-002 macro shape) and exactly
         // n under copy-out (removed, pre-F-002 shape) at BOTH sizes --
@@ -1227,7 +1231,8 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
         for iterations in [25, 100] {
             let directYieldCounter = CopyCountingCounter()
             var directYieldOuter = CopyCountingArrayDirectYieldOuter(
-                inner: CopyCountingArrayPoint(items: [], counter: directYieldCounter))
+                inner: CopyCountingArrayPoint(items: [], counter: directYieldCounter)
+            )
             for i in 0..<iterations { directYieldOuter.inner.items.append(i) }
             #expect(directYieldOuter.inner.items.count == iterations)
             #expect(
@@ -1241,7 +1246,8 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
 
             let copyOutCounter = CopyCountingCounter()
             var copyOutOuter = CopyCountingArrayCopyOutOuter(
-                inner: CopyCountingArrayPoint(items: [], counter: copyOutCounter))
+                inner: CopyCountingArrayPoint(items: [], counter: copyOutCounter)
+            )
             for i in 0..<iterations { copyOutOuter.inner.items.append(i) }
             #expect(copyOutOuter.inner.items.count == iterations)
             #expect(
@@ -1263,16 +1269,19 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
         let clock = ContinuousClock()
 
         var warmupNaive = NestedModifyCostNaiveArrayOuter(
-            inner: NestedModifyCostNaiveArrayPoint(items: []))
+            inner: NestedModifyCostNaiveArrayPoint(items: [])
+        )
         for i in 0..<200 { warmupNaive.inner.items.append(i) }
         var warmupMacro = NestedModifyCostMacroArrayOuter(
-            inner: NestedModifyCostMacroArrayInner(items: []))
+            inner: NestedModifyCostMacroArrayInner(items: [])
+        )
         for i in 0..<200 { warmupMacro.inner.items.append(i) }
 
         var naiveCount = 0
         let naiveDuration = clock.measure {
             var outer = NestedModifyCostNaiveArrayOuter(
-                inner: NestedModifyCostNaiveArrayPoint(items: []))
+                inner: NestedModifyCostNaiveArrayPoint(items: [])
+            )
             for i in 0..<iterations { outer.inner.items.append(i) }
             naiveCount = outer.inner.items.count
         }
@@ -1281,7 +1290,8 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
         var macroCount = 0
         let macroDuration = clock.measure {
             var outer = NestedModifyCostMacroArrayOuter(
-                inner: NestedModifyCostMacroArrayInner(items: []))
+                inner: NestedModifyCostMacroArrayInner(items: [])
+            )
             for i in 0..<iterations { outer.inner.items.append(i) }
             macroCount = outer.inner.items.count
         }
