@@ -754,7 +754,7 @@ private func generateInitializer(
 
 // MARK: - Errors
 
-enum CoWMacroError: Error, CustomStringConvertible {
+enum CoWMacroError: Swift.Error, CustomStringConvertible {
     case onlyApplicableToStruct
     case noStoredProperties
     case noVarProperties

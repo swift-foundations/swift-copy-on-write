@@ -708,7 +708,7 @@ struct CopyOnWriteTests {
     func `Repeated nested mutations maintain correctness`() {
         var outer = Outer(inner: Inner(value: 0), label: "counter")
 
-        for i in 1...100 {
+        (1...100).forEach { i in
             outer.inner.value = i
         }
 
@@ -1141,7 +1141,7 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
         var directYieldOuter = CopyCountingDirectYieldOuter(
             inner: CopyCountingPoint(x: 0, counter: directYieldCounter)
         )
-        for i in 0..<iterations { directYieldOuter.inner.x = i }
+        (0..<iterations).forEach { i in directYieldOuter.inner.x = i }
         #expect(directYieldOuter.inner.x == iterations - 1)
         #expect(
             directYieldCounter.count == 0,
@@ -1160,7 +1160,7 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
         var copyOutOuter = CopyCountingCopyOutOuter(
             inner: CopyCountingPoint(x: 0, counter: copyOutCounter)
         )
-        for i in 0..<iterations { copyOutOuter.inner.x = i }
+        (0..<iterations).forEach { i in copyOutOuter.inner.x = i }
         #expect(copyOutOuter.inner.x == iterations - 1)
         #expect(
             copyOutCounter.count == iterations,
@@ -1180,9 +1180,9 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
 
         // Warmup both implementations before measuring.
         var warmupNaive = NestedModifyCostNaiveOuter(inner: NestedModifyCostNaivePoint(x: 0))
-        for i in 0..<2_000 { warmupNaive.inner.x = i }
+        (0..<2_000).forEach { i in warmupNaive.inner.x = i }
         var warmupMacro = NestedModifyCostMacroOuter(inner: NestedModifyCostMacroInner(x: 0))
-        for i in 0..<2_000 { warmupMacro.inner.x = i }
+        (0..<2_000).forEach { i in warmupMacro.inner.x = i }
 
         var naiveResult = 0
         let naiveDuration = clock.measure {
@@ -1233,7 +1233,7 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
             var directYieldOuter = CopyCountingArrayDirectYieldOuter(
                 inner: CopyCountingArrayPoint(items: [], counter: directYieldCounter)
             )
-            for i in 0..<iterations { directYieldOuter.inner.items.append(i) }
+            (0..<iterations).forEach { i in directYieldOuter.inner.items.append(i) }
             #expect(directYieldOuter.inner.items.count == iterations)
             #expect(
                 directYieldCounter.count == 0,
@@ -1248,7 +1248,7 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
             var copyOutOuter = CopyCountingArrayCopyOutOuter(
                 inner: CopyCountingArrayPoint(items: [], counter: copyOutCounter)
             )
-            for i in 0..<iterations { copyOutOuter.inner.items.append(i) }
+            (0..<iterations).forEach { i in copyOutOuter.inner.items.append(i) }
             #expect(copyOutOuter.inner.items.count == iterations)
             #expect(
                 copyOutCounter.count == iterations,
@@ -1271,11 +1271,11 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
         var warmupNaive = NestedModifyCostNaiveArrayOuter(
             inner: NestedModifyCostNaiveArrayPoint(items: [])
         )
-        for i in 0..<200 { warmupNaive.inner.items.append(i) }
+        (0..<200).forEach { i in warmupNaive.inner.items.append(i) }
         var warmupMacro = NestedModifyCostMacroArrayOuter(
             inner: NestedModifyCostMacroArrayInner(items: [])
         )
-        for i in 0..<200 { warmupMacro.inner.items.append(i) }
+        (0..<200).forEach { i in warmupMacro.inner.items.append(i) }
 
         var naiveCount = 0
         let naiveDuration = clock.measure {
