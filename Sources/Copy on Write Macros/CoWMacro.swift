@@ -504,6 +504,7 @@ private func isComputedProperty(_ varDecl: VariableDeclSyntax) -> Bool {
             switch accessor.accessors {
             case .getter:
                 return true
+
             case .accessors(let accessorList):
                 for accessor in accessorList {
                     if accessor.accessorSpecifier.tokenKind == .keyword(.get)
@@ -766,9 +767,11 @@ extension CoWMacroError {
         case .onlyApplicableToStruct:
             return
                 "@CoW can only be applied to structs. Classes, enums, and actors are not supported."
+
         case .noStoredProperties:
             return
                 "@CoW requires at least one stored property. Add a 'var' property to your struct."
+
         case .noVarProperties:
             return
                 "@CoW requires at least one 'var' property. Change 'let' to 'var' or use 'private(set) var' for read-only properties."
