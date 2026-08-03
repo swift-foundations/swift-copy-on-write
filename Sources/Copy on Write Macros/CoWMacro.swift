@@ -214,47 +214,61 @@ private func generateEquatableExtension(
     typeName: some TypeSyntaxProtocol,
     properties: [StoredProperty],
     declareConformance: Bool
-) throws -> ExtensionDeclSyntax {
+) throws(CoWMacroError) -> ExtensionDeclSyntax {
     let comparisons = properties.map { prop in
         "lhs.\(prop.name) == rhs.\(prop.name)"
     }.joined(separator: " && ")
 
-    // Only declare conformance if struct doesn't already declare Equatable
-    // (e.g., when struct declares Hashable which implies Equatable)
-    if declareConformance {
-        return try ExtensionDeclSyntax("extension \(typeName): Equatable") {
-            """
-            public static func == (lhs: \(typeName), rhs: \(typeName)) -> Bool {
-                \(raw: comparisons)
+    // SwiftSyntaxBuilder's string-interpolation initializer is declared
+    // untyped `throws`; catch and re-express as the macro's own typed
+    // error rather than propagating the existential.
+    do {
+        // Only declare conformance if struct doesn't already declare Equatable
+        // (e.g., when struct declares Hashable which implies Equatable)
+        if declareConformance {
+            return try ExtensionDeclSyntax("extension \(typeName): Equatable") {
+                """
+                public static func == (lhs: \(typeName), rhs: \(typeName)) -> Bool {
+                    \(raw: comparisons)
+                }
+                """
             }
-            """
-        }
-    } else {
-        return try ExtensionDeclSyntax("extension \(typeName)") {
-            """
-            public static func == (lhs: \(typeName), rhs: \(typeName)) -> Bool {
-                \(raw: comparisons)
+        } else {
+            return try ExtensionDeclSyntax("extension \(typeName)") {
+                """
+                public static func == (lhs: \(typeName), rhs: \(typeName)) -> Bool {
+                    \(raw: comparisons)
+                }
+                """
             }
-            """
         }
+    } catch {
+        throw CoWMacroError.syntaxGenerationFailed(String(describing: error))
     }
 }
 
 private func generateHashableExtension(
     typeName: some TypeSyntaxProtocol,
     properties: [StoredProperty]
-) throws -> ExtensionDeclSyntax {
+) throws(CoWMacroError) -> ExtensionDeclSyntax {
     let hashStatements = properties.map { prop in
         "hasher.combine(\(prop.name))"
     }.joined(separator: "\n            ")
 
-    // Don't re-declare conformance - struct already declares it
-    return try ExtensionDeclSyntax("extension \(typeName)") {
-        """
-        public func hash(into hasher: inout Hasher) {
-            \(raw: hashStatements)
+    // SwiftSyntaxBuilder's string-interpolation initializer is declared
+    // untyped `throws`; catch and re-express as the macro's own typed
+    // error rather than propagating the existential.
+    do {
+        // Don't re-declare conformance - struct already declares it
+        return try ExtensionDeclSyntax("extension \(typeName)") {
+            """
+            public func hash(into hasher: inout Hasher) {
+                \(raw: hashStatements)
+            }
+            """
         }
-        """
+    } catch {
+        throw CoWMacroError.syntaxGenerationFailed(String(describing: error))
     }
 }
 
@@ -263,49 +277,56 @@ private func generateCodableExtension(
     properties: [StoredProperty],
     includeEncodable: Bool,
     includeDecodable: Bool
-) throws -> ExtensionDeclSyntax {
+) throws(CoWMacroError) -> ExtensionDeclSyntax {
     let codingKeys = properties.map { prop in
         "case \(prop.name)"
     }.joined(separator: "\n            ")
 
-    // Don't re-declare conformance - struct already declares it
-    return try ExtensionDeclSyntax("extension \(typeName)") {
-        """
-        private enum CodingKeys: String, CodingKey {
-            \(raw: codingKeys)
-        }
-        """
-
-        if includeEncodable {
-            let encodeStatements = properties.map { prop in
-                "try container.encode(\(prop.name), forKey: .\(prop.name))"
-            }.joined(separator: "\n            ")
-
+    // SwiftSyntaxBuilder's string-interpolation initializer is declared
+    // untyped `throws`; catch and re-express as the macro's own typed
+    // error rather than propagating the existential.
+    do {
+        // Don't re-declare conformance - struct already declares it
+        return try ExtensionDeclSyntax("extension \(typeName)") {
             """
-            public func encode(to encoder: Encoder) throws {
-                var container = encoder.container(keyedBy: CodingKeys.self)
-                \(raw: encodeStatements)
+            private enum CodingKeys: String, CodingKey {
+                \(raw: codingKeys)
             }
             """
-        }
 
-        if includeDecodable {
-            let decodeStatements = properties.map { prop in
-                "let \(prop.name) = try container.decode(\(cleanTypeString(prop.type)).self, forKey: .\(prop.name))"
-            }.joined(separator: "\n            ")
+            if includeEncodable {
+                let encodeStatements = properties.map { prop in
+                    "try container.encode(\(prop.name), forKey: .\(prop.name))"
+                }.joined(separator: "\n            ")
 
-            let initArgs = properties.map { prop in
-                "\(prop.name): \(prop.name)"
-            }.joined(separator: ", ")
-
-            """
-            public init(from decoder: Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                \(raw: decodeStatements)
-                self.init(\(raw: initArgs))
+                """
+                public func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.self)
+                    \(raw: encodeStatements)
+                }
+                """
             }
-            """
+
+            if includeDecodable {
+                let decodeStatements = properties.map { prop in
+                    "let \(prop.name) = try container.decode(\(cleanTypeString(prop.type)).self, forKey: .\(prop.name))"
+                }.joined(separator: "\n            ")
+
+                let initArgs = properties.map { prop in
+                    "\(prop.name): \(prop.name)"
+                }.joined(separator: ", ")
+
+                """
+                public init(from decoder: Decoder) throws {
+                    let container = try decoder.container(keyedBy: CodingKeys.self)
+                    \(raw: decodeStatements)
+                    self.init(\(raw: initArgs))
+                }
+                """
+            }
         }
+    } catch {
+        throw CoWMacroError.syntaxGenerationFailed(String(describing: error))
     }
 }
 
@@ -313,18 +334,25 @@ private func generateCustomStringConvertibleExtension(
     typeName: some TypeSyntaxProtocol,
     structName: String,
     properties: [StoredProperty]
-) throws -> ExtensionDeclSyntax {
+) throws(CoWMacroError) -> ExtensionDeclSyntax {
     let propertyDescriptions = properties.map { prop in
         "\(prop.name): \\(\(prop.name))"
     }.joined(separator: ", ")
 
-    // Don't re-declare conformance - struct already declares it
-    return try ExtensionDeclSyntax("extension \(typeName)") {
-        """
-        public var description: String {
-            "\(raw: structName)(\(raw: propertyDescriptions))"
+    // SwiftSyntaxBuilder's string-interpolation initializer is declared
+    // untyped `throws`; catch and re-express as the macro's own typed
+    // error rather than propagating the existential.
+    do {
+        // Don't re-declare conformance - struct already declares it
+        return try ExtensionDeclSyntax("extension \(typeName)") {
+            """
+            public var description: String {
+                "\(raw: structName)(\(raw: propertyDescriptions))"
+            }
+            """
         }
-        """
+    } catch {
+        throw CoWMacroError.syntaxGenerationFailed(String(describing: error))
     }
 }
 
@@ -504,6 +532,7 @@ private func isComputedProperty(_ varDecl: VariableDeclSyntax) -> Bool {
             switch accessor.accessors {
             case .getter:
                 return true
+
             case .accessors(let accessorList):
                 for accessor in accessorList {
                     if accessor.accessorSpecifier.tokenKind == .keyword(.get)
@@ -758,6 +787,7 @@ enum CoWMacroError: Swift.Error, CustomStringConvertible {
     case onlyApplicableToStruct
     case noStoredProperties
     case noVarProperties
+    case syntaxGenerationFailed(String)
 }
 
 extension CoWMacroError {
@@ -766,12 +796,18 @@ extension CoWMacroError {
         case .onlyApplicableToStruct:
             return
                 "@CoW can only be applied to structs. Classes, enums, and actors are not supported."
+
         case .noStoredProperties:
             return
                 "@CoW requires at least one stored property. Add a 'var' property to your struct."
+
         case .noVarProperties:
             return
                 "@CoW requires at least one 'var' property. Change 'let' to 'var' or use 'private(set) var' for read-only properties."
+
+        case .syntaxGenerationFailed(let detail):
+            return
+                "@CoW failed to build generated syntax internally (\(detail)). This indicates a bug in the macro implementation."
         }
     }
 }
