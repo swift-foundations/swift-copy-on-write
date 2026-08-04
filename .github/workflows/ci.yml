@@ -12,5 +12,5 @@ concurrency:
 
 jobs:
   ci:
-    uses: swift-institute/.github/.github/workflows/swift-ci.yml@65a2b61037f4b61989319a02fc2548158c7ee916
+    uses: swift-institute/.github/.github/workflows/swift-ci.yml@69e4306da2d0f3f4a3a5fa175beb8b0620e58da1
     secrets: inherit
