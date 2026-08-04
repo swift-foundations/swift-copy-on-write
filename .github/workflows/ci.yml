@@ -12,5 +12,5 @@ concurrency:
 
 jobs:
   ci:
-    uses: swift-institute/.github/.github/workflows/swift-ci.yml@coenttb/test-revert-309
+    uses: swift-institute/.github/.github/workflows/swift-ci.yml@65a2b61037f4b61989319a02fc2548158c7ee916
     secrets: inherit
