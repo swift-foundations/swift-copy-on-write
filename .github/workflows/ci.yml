@@ -12,5 +12,5 @@ concurrency:
 
 jobs:
   ci:
-    uses: swift-institute/.github/.github/workflows/swift-ci.yml@69e4306da2d0f3f4a3a5fa175beb8b0620e58da1
+    uses: swift-institute/.github/.github/workflows/swift-ci.yml@coenttb/revert-303-ci-startup-failure
     secrets: inherit
