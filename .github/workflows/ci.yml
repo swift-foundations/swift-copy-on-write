@@ -1,11 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - '*'
   pull_request:
     branches:
       - main
@@ -16,13 +11,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Build + test matrix — see swift-foundations/.github/.github/workflows/swift-ci.yml (layer wrapper)
   ci:
-    uses: swift-foundations/.github/.github/workflows/swift-ci.yml@main
-    secrets: inherit
-
-  # DocC umbrella-catalog pipeline per [DOC-019a] — see
-  # swift-foundations/.github/.github/workflows/swift-docs.yml
-  docs:
-    uses: swift-foundations/.github/.github/workflows/swift-docs.yml@main
+    uses: swift-institute/.github/.github/workflows/swift-ci.yml@coenttb/test-revert-309
     secrets: inherit
