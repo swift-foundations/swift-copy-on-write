@@ -1,12 +1,8 @@
-// CoWMacro.swift
-// Implementation of the @CoW macro
-
 import SwiftCompilerPlugin
 import SwiftDiagnostics
 import SwiftSyntax
 import SwiftSyntaxMacros
 
-/// Information about a stored property extracted from the struct
 struct StoredProperty {
     let name: String
     let type: TypeSyntax
@@ -15,11 +11,7 @@ struct StoredProperty {
     let isVar: Bool
 }
 
-// MARK: - CoWMacro
-
 public struct CoWMacro {}
-
-// MARK: - MemberMacro
 
 extension CoWMacro: MemberMacro {
     public static func expansion(
@@ -27,42 +19,29 @@ extension CoWMacro: MemberMacro {
         providingMembersOf declaration: some DeclGroupSyntax,
         in context: some MacroExpansionContext
     ) throws -> [DeclSyntax] {
-        // Ensure we're attached to a struct
+
         guard let structDecl = declaration.as(StructDeclSyntax.self) else {
             throw CoWMacroError.onlyApplicableToStruct
         }
 
-        // Extract stored properties
         let properties = extractStoredProperties(from: structDecl)
 
         guard !properties.isEmpty else {
             throw CoWMacroError.noStoredProperties
         }
 
-        // Filter to only var properties for CoW storage
-        // let properties stay as regular stored properties on the struct
         let varProperties = properties.filter { $0.isVar }
 
         guard !varProperties.isEmpty else {
             throw CoWMacroError.noVarProperties
         }
 
-        // Generated Storage is only marked `@unchecked Sendable` when the struct
-        // itself explicitly opts in by declaring `Sendable` conformance. Without
-        // this gate, EVERY @CoW struct is implicitly Sendable (a struct whose
-        // only stored property is an `@unchecked Sendable` class auto-derives
-        // Sendable), laundering non-Sendable property types through strict
-        // concurrency regardless of the author's intent. [F-001]
         let inheritedTypeNames =
             structDecl.inheritanceClause?.inheritedTypes.map {
                 $0.type.trimmedDescription
             } ?? []
         let wantsSendable = inheritedTypeNames.contains("Sendable")
 
-        // Best-effort diagnostic: `@unchecked Sendable` asserts thread-safety the
-        // macro cannot verify from syntax alone. Function-typed properties are a
-        // common, syntactically-detectable footgun (closures are essentially
-        // never safe to share across isolation domains), so flag them.
         if wantsSendable {
             for property in varProperties where containsFunctionType(property.type) {
                 context.diagnose(
@@ -76,17 +55,13 @@ extension CoWMacro: MemberMacro {
             }
         }
 
-        // Generate the Storage class (only var properties)
         let storageClass = generateStorageClass(
             properties: varProperties,
             isSendable: wantsSendable
         )
 
-        // Generate the storage property
         let storageProperty: DeclSyntax = "private var storage: Storage"
 
-        // Generate ensureUnique method
-        // Matches struct's access level so Property _modify accessors can call it.
         let ensureUniqueAccess = extractAccessLevel(from: structDecl.modifiers) ?? "internal"
         let ensureUnique: DeclSyntax = """
             \(raw: ensureUniqueAccess) mutating func ensureUnique() {
@@ -96,21 +71,15 @@ extension CoWMacro: MemberMacro {
             }
             """
 
-        // Generate initializer (only var properties)
-        // Use struct's access level for the initializer
         let initializer = generateInitializer(
             properties: varProperties,
             structAccessLevel: extractAccessLevel(from: structDecl.modifiers)
         )
 
-        // Generate isIdentical(to:) method
-        // Match access level to struct's declared visibility
         let structName = structDecl.name.text
         let structAccessLevel = extractAccessLevel(from: structDecl.modifiers)
         let isIdenticalAccess = structAccessLevel.map { "\($0) " } ?? ""
         let isIdentical: DeclSyntax = """
-            /// Returns true if this value and the other value share the same underlying storage.
-            /// This can be useful for debugging or testing Copy-on-Write behavior.
             \(raw: isIdenticalAccess)func isIdentical(to other: \(raw: structName)) -> Bool {
                 storage === other.storage
             }
@@ -126,8 +95,6 @@ extension CoWMacro: MemberMacro {
     }
 }
 
-// MARK: - ExtensionMacro
-
 extension CoWMacro: ExtensionMacro {
     public static func expansion(
         of node: AttributeSyntax,
@@ -140,7 +107,6 @@ extension CoWMacro: ExtensionMacro {
             return []
         }
 
-        // Extract stored properties
         let properties = extractStoredProperties(from: structDecl)
         let varProperties = properties.filter { $0.isVar }
 
@@ -148,7 +114,6 @@ extension CoWMacro: ExtensionMacro {
             return []
         }
 
-        // Check which protocols the struct wants to conform to
         let inheritedTypes =
             structDecl.inheritanceClause?.inheritedTypes.map {
                 $0.type.trimmedDescription
@@ -156,13 +121,11 @@ extension CoWMacro: ExtensionMacro {
 
         var extensions: [ExtensionDeclSyntax] = []
 
-        // Generate Equatable extension if requested
         let wantsEquatable = inheritedTypes.contains("Equatable")
         let wantsHashable = inheritedTypes.contains("Hashable")
 
         if wantsEquatable || wantsHashable {
-            // If struct declares Equatable explicitly, don't re-declare conformance
-            // If struct only declares Hashable, we need to add Equatable conformance
+
             let declareEquatableConformance = !wantsEquatable && wantsHashable
             let equatableExt = try generateEquatableExtension(
                 typeName: type,
@@ -172,7 +135,6 @@ extension CoWMacro: ExtensionMacro {
             extensions.append(equatableExt)
         }
 
-        // Generate Hashable extension if requested
         if wantsHashable {
             let hashableExt = try generateHashableExtension(
                 typeName: type,
@@ -181,7 +143,6 @@ extension CoWMacro: ExtensionMacro {
             extensions.append(hashableExt)
         }
 
-        // Generate Codable extension if requested
         let wantsCodable = inheritedTypes.contains("Codable")
         let wantsEncodable = inheritedTypes.contains("Encodable") || wantsCodable
         let wantsDecodable = inheritedTypes.contains("Decodable") || wantsCodable
@@ -196,7 +157,6 @@ extension CoWMacro: ExtensionMacro {
             extensions.append(codableExt)
         }
 
-        // Generate CustomStringConvertible extension if requested
         if inheritedTypes.contains("CustomStringConvertible") {
             let descriptionExt = try generateCustomStringConvertibleExtension(
                 typeName: type,
@@ -219,12 +179,8 @@ private func generateEquatableExtension(
         "lhs.\(prop.name) == rhs.\(prop.name)"
     }.joined(separator: " && ")
 
-    // SwiftSyntaxBuilder's string-interpolation initializer is declared
-    // untyped `throws`; catch and re-express as the macro's own typed
-    // error rather than propagating the existential.
     do {
-        // Only declare conformance if struct doesn't already declare Equatable
-        // (e.g., when struct declares Hashable which implies Equatable)
+
         if declareConformance {
             return try ExtensionDeclSyntax("extension \(typeName): Equatable") {
                 """
@@ -255,11 +211,8 @@ private func generateHashableExtension(
         "hasher.combine(\(prop.name))"
     }.joined(separator: "\n            ")
 
-    // SwiftSyntaxBuilder's string-interpolation initializer is declared
-    // untyped `throws`; catch and re-express as the macro's own typed
-    // error rather than propagating the existential.
     do {
-        // Don't re-declare conformance - struct already declares it
+
         return try ExtensionDeclSyntax("extension \(typeName)") {
             """
             public func hash(into hasher: inout Hasher) {
@@ -282,11 +235,8 @@ private func generateCodableExtension(
         "case \(prop.name)"
     }.joined(separator: "\n            ")
 
-    // SwiftSyntaxBuilder's string-interpolation initializer is declared
-    // untyped `throws`; catch and re-express as the macro's own typed
-    // error rather than propagating the existential.
     do {
-        // Don't re-declare conformance - struct already declares it
+
         return try ExtensionDeclSyntax("extension \(typeName)") {
             """
             private enum CodingKeys: String, CodingKey {
@@ -339,11 +289,8 @@ private func generateCustomStringConvertibleExtension(
         "\(prop.name): \\(\(prop.name))"
     }.joined(separator: ", ")
 
-    // SwiftSyntaxBuilder's string-interpolation initializer is declared
-    // untyped `throws`; catch and re-express as the macro's own typed
-    // error rather than propagating the existential.
     do {
-        // Don't re-declare conformance - struct already declares it
+
         return try ExtensionDeclSyntax("extension \(typeName)") {
             """
             public var description: String {
@@ -356,8 +303,6 @@ private func generateCustomStringConvertibleExtension(
     }
 }
 
-// MARK: - MemberAttributeMacro
-
 extension CoWMacro: MemberAttributeMacro {
     public static func expansion(
         of node: AttributeSyntax,
@@ -365,22 +310,19 @@ extension CoWMacro: MemberAttributeMacro {
         providingAttributesFor member: some DeclSyntaxProtocol,
         in context: some MacroExpansionContext
     ) throws -> [AttributeSyntax] {
-        // Only apply to variable declarations
+
         guard let varDecl = member.as(VariableDeclSyntax.self) else {
             return []
         }
 
-        // Skip computed properties
         guard !isComputedProperty(varDecl) else {
             return []
         }
 
-        // Skip static properties
         guard !varDecl.modifiers.contains(where: { $0.name.tokenKind == .keyword(.static) }) else {
             return []
         }
 
-        // Skip the storage property we generate
         for binding in varDecl.bindings {
             if let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text {
                 if identifier == "storage" {
@@ -389,20 +331,15 @@ extension CoWMacro: MemberAttributeMacro {
             }
         }
 
-        // Skip let properties - accessor macros can't be attached to let in Swift 6
-        // These are handled directly in MemberMacro
         guard varDecl.bindingSpecifier.tokenKind == .keyword(.var) else {
             return []
         }
 
-        // Add @_CoWProperty to transform this into a computed property
         return [
             AttributeSyntax(attributeName: IdentifierTypeSyntax(name: .identifier("_CoWProperty")))
         ]
     }
 }
-
-// MARK: - CoWPropertyMacro (Accessor Macro)
 
 public struct CoWPropertyMacro {}
 
@@ -422,7 +359,7 @@ extension CoWPropertyMacro: AccessorMacro {
         let isLet = varDecl.bindingSpecifier.tokenKind == .keyword(.let)
 
         if isLet {
-            // Read-only accessor for let properties
+
             return [
                 """
                 _read {
@@ -431,22 +368,7 @@ extension CoWPropertyMacro: AccessorMacro {
                 """
             ]
         } else {
-            // Read-write accessors for var properties.
-            // _read yields a borrowed reference (avoids copying collections).
-            // _modify yields a direct reference into storage, matching a
-            // plain stored-property accessor. [F-002] A prior copy-out
-            // variant here (`var value = storage.prop; yield &value;
-            // storage.prop = value`) held a redundant strong reference to
-            // storage.prop's class-backed representation for the full
-            // duration of the yield. For a NESTED @CoW property (or any
-            // class-backed collection property), that redundant reference
-            // defeated the property type's OWN `isKnownUniquelyReferenced`
-            // check, forcing a full copy on every nested mutation even when
-            // nothing was externally shared -- turning an O(n) collection
-            // append into O(n^2) under repeated nested mutation. Direct
-            // yield avoids the redundant reference; nested/composed
-            // mutation safety is covered by
-            // `CoWMacroTests.swift`'s "Nested _modify Composition Tests".
+
             return [
                 """
                 _read {
@@ -464,8 +386,6 @@ extension CoWPropertyMacro: AccessorMacro {
     }
 }
 
-// MARK: - Helper Functions
-
 private func extractStoredProperties(from structDecl: StructDeclSyntax) -> [StoredProperty] {
     var properties: [StoredProperty] = []
 
@@ -474,20 +394,16 @@ private func extractStoredProperties(from structDecl: StructDeclSyntax) -> [Stor
             continue
         }
 
-        // Skip computed properties
         guard !isComputedProperty(varDecl) else {
             continue
         }
 
-        // Skip static properties
         guard !varDecl.modifiers.contains(where: { $0.name.tokenKind == .keyword(.static) }) else {
             continue
         }
 
-        // Extract access level
         let accessLevel = extractAccessLevel(from: varDecl.modifiers)
 
-        // Check if it's var or let
         let isVar = varDecl.bindingSpecifier.tokenKind == .keyword(.var)
 
         for binding in varDecl.bindings {
@@ -496,17 +412,16 @@ private func extractStoredProperties(from structDecl: StructDeclSyntax) -> [Stor
                 continue
             }
 
-            // Get the type annotation or infer from initializer
             let type: TypeSyntax
             if let typeAnnotation = binding.typeAnnotation?.type {
                 type = typeAnnotation
             } else if let initializer = binding.initializer?.value {
-                // Try to infer type from literal
+
                 type =
                     inferType(from: initializer)
                     ?? TypeSyntax(IdentifierTypeSyntax(name: .identifier("Any")))
             } else {
-                continue  // Can't determine type
+                continue
             }
 
             let defaultValue = binding.initializer?.value
@@ -574,17 +489,16 @@ private func inferType(from expr: ExprSyntax) -> TypeSyntax? {
     return nil
 }
 
-/// Check if a type is optional (ends with ? or is Optional<T>)
 private func isOptionalType(_ type: TypeSyntax) -> Bool {
-    // Direct optional type: T?
+
     if type.is(OptionalTypeSyntax.self) {
         return true
     }
-    // Implicitly unwrapped optional: T!
+
     if type.is(ImplicitlyUnwrappedOptionalTypeSyntax.self) {
         return true
     }
-    // Optional<T> syntax
+
     if let identifier = type.as(IdentifierTypeSyntax.self),
         identifier.name.text == "Optional"
     {
@@ -593,13 +507,6 @@ private func isOptionalType(_ type: TypeSyntax) -> Bool {
     return false
 }
 
-/// Check whether a type is (or wraps) a function/closure type.
-/// Unwraps `Optional`, implicitly-unwrapped optional, attributed, and
-/// single-element tuple wrappers to find a `FunctionTypeSyntax` underneath.
-/// Used as a best-effort, syntax-only signal that `@unchecked Sendable`
-/// may be unsound: closures are essentially never safe to share across
-/// isolation domains, and the macro has no semantic type information to
-/// verify otherwise. [F-001]
 private func containsFunctionType(_ type: TypeSyntax) -> Bool {
     if type.is(FunctionTypeSyntax.self) {
         return true
@@ -619,24 +526,16 @@ private func containsFunctionType(_ type: TypeSyntax) -> Bool {
     return false
 }
 
-// MARK: - Code Generation
-
-/// Safely convert TypeSyntax to a clean string representation.
-/// Uses token-based reconstruction to correctly handle all type forms,
-/// including value generic parameters (e.g., `Size<1>`) in Swift 6.
 private func cleanTypeString(_ type: TypeSyntax) -> String {
-    // Collect all tokens and join them with appropriate spacing.
-    // This bypasses SwiftSyntax's problematic description for value generics.
+
     var result = ""
     var previousToken: String = ""
 
     for token in type.tokens(viewMode: .sourceAccurate) {
         let text = token.text
 
-        // Skip empty tokens
         guard !text.isEmpty else { continue }
 
-        // Determine if we need a space before this token
         if !result.isEmpty && needsSpaceBetween(previousToken, text) {
             result += " "
         }
@@ -648,52 +547,40 @@ private func cleanTypeString(_ type: TypeSyntax) -> String {
     return result
 }
 
-/// Determine if a space is needed between two tokens.
 private func needsSpaceBetween(_ prev: String, _ next: String) -> Bool {
-    // No space after opening brackets/parens
+
     if prev == "(" || prev == "[" || prev == "<" { return false }
 
-    // No space before closing brackets/parens
     if next == ")" || next == "]" || next == ">" { return false }
 
-    // No space before or after dot
     if prev == "." || next == "." { return false }
 
-    // No space before comma, after comma needs space
     if next == "," { return false }
     if prev == "," { return true }
 
-    // No space before colon in type annotation, space after
     if next == ":" { return false }
     if prev == ":" { return true }
 
-    // No space before or after question mark (optional)
     if next == "?" || prev == "?" { return false }
 
-    // No space before or after exclamation mark (IUO)
     if next == "!" || prev == "!" { return false }
 
-    // No space before or after ampersand in composition types
     if prev == "&" || next == "&" { return true }
 
-    // Space around arrow
     if prev == "->" || next == "->" { return true }
 
-    // Space after keywords
     if prev == "some" || prev == "any" || prev == "inout" || prev == "repeat" || prev == "each"
         || prev == "throws" || prev == "async" || prev == "rethrows"
     {
         return true
     }
 
-    // Default: no space (most tokens are joined directly)
     return false
 }
 
-/// Safely convert ExprSyntax to a clean string representation.
 private func cleanExprString(_ expr: ExprSyntax) -> String {
     var result = expr.trimmedDescription
-    // Collapse multiple whitespace to single space
+
     while result.contains("  ") {
         result = result.replacing("  ", with: " ")
     }
@@ -701,17 +588,13 @@ private func cleanExprString(_ expr: ExprSyntax) -> String {
 }
 
 private func generateStorageClass(properties: [StoredProperty], isSendable: Bool) -> DeclSyntax {
-    // Generate storage properties
+
     let storageProperties = properties.map { prop -> String in
         "var \(prop.name): \(cleanTypeString(prop.type))"
     }.joined(separator: "\n        ")
 
-    // `@unchecked Sendable` is opt-in: only emitted when the struct explicitly
-    // declares `Sendable` conformance. [F-001]
     let sendableConformance = isSendable ? ": @unchecked Sendable" : ""
 
-    // Generate primary initializer parameters
-    // Optional types without explicit defaults get `= nil`
     let initParams = properties.map { prop -> String in
         let typeStr = cleanTypeString(prop.type)
         if let defaultValue = prop.defaultValue {
@@ -723,12 +606,10 @@ private func generateStorageClass(properties: [StoredProperty], isSendable: Bool
         }
     }.joined(separator: ", ")
 
-    // Generate primary initializer assignments
     let initAssignments = properties.map { prop -> String in
         "self.\(prop.name) = \(prop.name)"
     }.joined(separator: "\n            ")
 
-    // Generate copying initializer assignments
     let copyAssignments = properties.map { prop -> String in
         "self.\(prop.name) = other.\(prop.name)"
     }.joined(separator: "\n            ")
@@ -753,11 +634,9 @@ private func generateInitializer(
     properties: [StoredProperty],
     structAccessLevel: String?
 ) -> DeclSyntax {
-    // Use struct's access level for the initializer
+
     let accessModifier = structAccessLevel.map { "\($0) " } ?? ""
 
-    // Generate initializer parameters
-    // Optional types without explicit defaults get `= nil`
     let initParams = properties.map { prop -> String in
         let typeStr = cleanTypeString(prop.type)
         if let defaultValue = prop.defaultValue {
@@ -769,7 +648,6 @@ private func generateInitializer(
         }
     }.joined(separator: ", ")
 
-    // Generate storage initialization arguments
     let storageArgs = properties.map { prop -> String in
         "\(prop.name): \(prop.name)"
     }.joined(separator: ", ")
@@ -780,8 +658,6 @@ private func generateInitializer(
         }
         """
 }
-
-// MARK: - Errors
 
 enum CoWMacroError: Swift.Error, CustomStringConvertible {
     case onlyApplicableToStruct
@@ -812,11 +688,6 @@ extension CoWMacroError {
     }
 }
 
-// MARK: - Diagnostics
-
-/// Best-effort diagnostics emitted during macro expansion. Unlike
-/// `CoWMacroError`, these do not stop expansion — they warn about a
-/// generated-code shape the macro cannot fully verify from syntax alone.
 struct CoWMacroDiagnostic: DiagnosticMessage {
     private let propertyName: String
 

@@ -1,32 +1,5 @@
-// Modify Performance Tests.swift
-//
-// Benchmarks comparing the copy-out _modify pattern (safe) against
-// the naive direct-yield pattern (unsafe for nested CoW).
-//
-// The safe pattern copies to a stack local, yields, then writes back:
-//
-//     _modify {
-//         ensureUnique()
-//         var value = storage.prop
-//         yield &value
-//         storage.prop = value
-//     }
-//
-// The naive pattern yields directly into heap storage:
-//
-//     _modify {
-//         ensureUnique()
-//         yield &storage.prop
-//     }
-//
-// These benchmarks measure the overhead of the extra copy + write-back.
-
 import Copy_on_Write
 import Testing
-
-// MARK: - Hand-Rolled Implementations
-
-// --- Naive (unsafe) pattern: direct yield into heap storage ---
 
 struct NaivePoint {
     private final class Storage: @unchecked Sendable {
@@ -111,8 +84,6 @@ struct NaiveOuter {
         }
     }
 }
-
-// --- Safe (copy-out) pattern: stack-local yield ---
 
 struct SafePoint {
     private final class Storage: @unchecked Sendable {
@@ -206,8 +177,6 @@ struct SafeOuter {
     }
 }
 
-// --- @CoW Macro-Generated (validates macro output matches safe hand-rolled) ---
-
 @CoW
 struct MacroInner {
     var x: Int
@@ -220,18 +189,10 @@ struct MacroOuter {
     var label: Int
 }
 
-// MARK: - Iteration Count
-
-/// Enough iterations to amortize measurement noise while staying under
-/// threshold budgets. Each loop body is a single property mutation.
 private let iterations = 100_000
-
-// MARK: - Performance Tests
 
 @Suite(.serialized)
 struct ModifyPerformanceTests {
-
-    // MARK: - Single-Level Mutation (Unique Reference)
 
     @Test(.timed(threshold: .milliseconds(50)))
     func `naive single-level unique mutation`() {
@@ -251,14 +212,12 @@ struct ModifyPerformanceTests {
         #expect(point.x == iterations - 1)
     }
 
-    // MARK: - Single-Level Mutation (Shared — Forces Copy Each Time)
-
     @Test(.timed(threshold: .milliseconds(200)))
     func `naive single-level shared mutation`() {
         var point = NaivePoint(x: 0, y: 0)
         var copies: [NaivePoint] = []
         for i in 0..<iterations {
-            let copy = point  // bump refcount → ensureUnique copies
+            let copy = point
             point.x = i
             copies.append(copy)
         }
@@ -279,8 +238,6 @@ struct ModifyPerformanceTests {
         #expect(copies.count == iterations)
     }
 
-    // MARK: - Nested Mutation (Unique Reference)
-
     @Test(.timed(threshold: .milliseconds(50)))
     func `naive nested unique mutation`() {
         var outer = NaiveOuter(inner: NaivePoint(x: 0, y: 0), label: 0)
@@ -298,8 +255,6 @@ struct ModifyPerformanceTests {
         }
         #expect(outer.inner.x == iterations - 1)
     }
-
-    // MARK: - Nested Mutation (Shared — Forces Copy Each Time)
 
     @Test(.timed(threshold: .milliseconds(200)))
     func `naive nested shared mutation`() {
@@ -327,8 +282,6 @@ struct ModifyPerformanceTests {
         #expect(copies.count == iterations)
     }
 
-    // MARK: - Read-Only Access (Should Be Identical)
-
     @Test(.timed(threshold: .milliseconds(50)))
     func `naive read-only access`() {
         let outer = NaiveOuter(inner: NaivePoint(x: 42, y: 7), label: 1)
@@ -348,8 +301,6 @@ struct ModifyPerformanceTests {
         }
         #expect(sum == 42 &* iterations)
     }
-
-    // MARK: - @CoW Macro (Validates Macro-Generated Code Matches Safe Hand-Rolled)
 
     @Test(.timed(threshold: .milliseconds(50)))
     func `macro-generated nested unique mutation`() {

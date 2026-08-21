@@ -1,6 +1,3 @@
-// Plugin.swift
-// Compiler plugin entry point
-
 import SwiftCompilerPlugin
 import SwiftSyntaxMacros
 

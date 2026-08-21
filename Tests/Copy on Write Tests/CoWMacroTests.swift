@@ -1,11 +1,7 @@
-// CoWMacroTests.swift
-
 import Copy_on_Write
 import Copy_on_Write_Macros
 import Foundation
 import Testing
-
-// MARK: - Test Types
 
 @CoW
 struct Point {
@@ -37,7 +33,6 @@ struct FullNamedMacro {
     var count: Int = 0
 }
 
-// Test types with protocol conformances
 @CoW
 struct EquatablePoint: Equatable {
     var x: Int
@@ -56,14 +51,12 @@ struct CodablePerson: Codable {
     var age: Int
 }
 
-// Test type with CustomStringConvertible
 @CoW
 struct DescribablePoint: CustomStringConvertible {
     var x: Int
     var y: Int
 }
 
-// Test type with optional properties
 @CoW
 struct WithOptional {
     var name: String
@@ -71,7 +64,6 @@ struct WithOptional {
     var age: Int = 0
 }
 
-// Test nested CoW structs
 @CoW
 struct Inner {
     var value: Int
@@ -83,7 +75,6 @@ struct Outer {
     var label: String
 }
 
-// Test struct with computed property (should be preserved)
 @CoW
 struct WithComputed {
     var width: Int
@@ -94,39 +85,31 @@ struct WithComputed {
     }
 }
 
-// MARK: - Complex Type Tests
-
-// Test labeled tuple array
 @CoW
 struct WithLabeledTupleArray {
     var items: [(name: String, value: Int)]
 }
 
-// Test optional labeled tuple
 @CoW
 struct WithOptionalTuple {
     var pair: (first: String, second: Int)?
 }
 
-// Test nested dictionary
 @CoW
 struct WithNestedGeneric {
     var data: [String: [Int]]
 }
 
-// Test function type
 @CoW
 struct WithFunctionType {
     var handler: ((Int) -> Void)?
 }
 
-// Test dictionary type
 @CoW
 struct WithDictionary {
     var mapping: [String: Int]
 }
 
-// Test value generic parameters (Swift 6 feature)
 struct ValueGeneric<let N: Int> {
     var value: Int
 }
@@ -137,9 +120,6 @@ struct WithValueGeneric {
     var optionalSize: ValueGeneric<2>?
 }
 
-// MARK: - Nested _modify Composition Types
-
-// Triple-nested CoW: exercises three chained _modify coroutines
 @CoW
 struct DeepInner {
     var value: Int
@@ -157,7 +137,6 @@ struct DeepOuter {
     var tag: Int
 }
 
-// Nested CoW with a collection property — chains _modify into Array's CoW
 @CoW
 struct InnerWithArray {
     var items: [Int]
@@ -169,23 +148,15 @@ struct OuterWithArray {
     var name: String
 }
 
-// MARK: - Sendable Gating Fixtures (F-001)
-
-// No explicit `Sendable` declaration — generated Storage must NOT be
-// `@unchecked Sendable`, so this struct must not be implicitly Sendable.
 @CoW
 struct SendableGatingOptedOut {
     var value: Int
 }
 
-// Explicit `Sendable` declaration — generated Storage IS `@unchecked
-// Sendable`, so this struct is Sendable.
 @CoW
 struct SendableGatingOptedIn: Sendable {
     var value: Int
 }
-
-// MARK: - Tests
 
 @Suite("Copy on Write Macro Tests")
 struct CopyOnWriteTests {
@@ -195,14 +166,11 @@ struct CopyOnWriteTests {
         var p1 = Point(x: 10, y: 20)
         let p2 = p1
 
-        // Before mutation, should be equal
         #expect(p1.x == p2.x)
         #expect(p1.y == p2.y)
 
-        // Mutate p1
         p1.x = 100
 
-        // p1 should have changed, p2 should remain the same (value semantics)
         #expect(p1.x == 100)
         #expect(p2.x == 10)
     }
@@ -222,15 +190,12 @@ struct CopyOnWriteTests {
         var c1 = Counter(count: 1, name: "Original")
         let c2 = c1
 
-        // Mutate c1
         c1.count = 999
         c1.name = "Modified"
 
-        // c2 should be unchanged (CoW made a copy on mutation)
         #expect(c2.count == 1)
         #expect(c2.name == "Original")
 
-        // c1 should have new values
         #expect(c1.count == 999)
         #expect(c1.name == "Modified")
     }
@@ -241,12 +206,10 @@ struct CopyOnWriteTests {
         #expect(w.id == "abc")
         #expect(w.value == 42)
 
-        // private(set) properties are read-only from outside
-        // but the CoW mechanism still applies
         var w2 = w
         w2.value = 100
         #expect(w2.value == 100)
-        #expect(w2.id == "abc")  // id is still the same (value semantics)
+        #expect(w2.id == "abc")
     }
 
     @Test
@@ -268,19 +231,16 @@ struct CopyOnWriteTests {
         var copy2 = original
         var copy3 = copy1
 
-        // All start equal
         #expect(original.x == 1)
         #expect(copy1.x == 1)
         #expect(copy2.x == 1)
         #expect(copy3.x == 1)
 
-        // Mutate each independently
         original.x = 10
         copy1.x = 20
         copy2.x = 30
         copy3.x = 40
 
-        // All should have independent values
         #expect(original.x == 10)
         #expect(copy1.x == 20)
         #expect(copy2.x == 30)
@@ -291,11 +251,9 @@ struct CopyOnWriteTests {
     func `No unnecessary copy on unique reference`() {
         var p = Point(x: 1, y: 2)
 
-        // Reading should not cause a copy
         let _ = p.x
         let _ = p.y
 
-        // Mutating a uniquely-referenced value should not copy either
         p.x = 10
         #expect(p.x == 10)
     }
@@ -312,21 +270,17 @@ struct CopyOnWriteTests {
         f1.name = "Modified"
         f1.count = 5
 
-        // Value semantics should apply
         #expect(f1.name == "Modified")
         #expect(f1.count == 5)
         #expect(f2.name == "Test")
         #expect(f2.count == 0)
     }
 
-    // MARK: - isIdentical(to:) Tests
-
     @Test
     func `isIdentical returns true for shared storage`() {
         let p1 = Point(x: 10, y: 20)
         let p2 = p1
 
-        // Before mutation, should share storage
         #expect(p1.isIdentical(to: p2))
     }
 
@@ -335,14 +289,10 @@ struct CopyOnWriteTests {
         var p1 = Point(x: 10, y: 20)
         let p2 = p1
 
-        // Mutate p1, which triggers copy
         p1.x = 100
 
-        // Should no longer share storage
         #expect(!p1.isIdentical(to: p2))
     }
-
-    // MARK: - Equatable Tests
 
     @Test
     func `Equatable conformance works`() {
@@ -359,17 +309,12 @@ struct CopyOnWriteTests {
         var p1 = EquatablePoint(x: 10, y: 20)
         let p2 = p1
 
-        // Should be equal (same values)
         #expect(p1 == p2)
 
-        // Mutate p1
         p1.x = 100
 
-        // Should not be equal (different values)
         #expect(p1 != p2)
     }
-
-    // MARK: - Hashable Tests
 
     @Test
     func `Hashable conformance works`() {
@@ -388,13 +333,11 @@ struct CopyOnWriteTests {
         let p3 = HashablePoint(x: 30, y: 40)
 
         var set: Set<HashablePoint> = [p1, p2, p3]
-        #expect(set.count == 2)  // p1 and p2 are equal
+        #expect(set.count == 2)
 
         set.insert(HashablePoint(x: 50, y: 60))
         #expect(set.count == 3)
     }
-
-    // MARK: - Codable Tests
 
     @Test
     func `Encodable conformance works`() throws {
@@ -432,8 +375,6 @@ struct CopyOnWriteTests {
         #expect(decoded.age == original.age)
     }
 
-    // MARK: - CustomStringConvertible Tests
-
     @Test
     func `CustomStringConvertible conformance works`() {
         let p = DescribablePoint(x: 10, y: 20)
@@ -451,8 +392,6 @@ struct CopyOnWriteTests {
 
         #expect(str == "DescribablePoint(x: 5, y: 15)")
     }
-
-    // MARK: - Optional Property Tests
 
     @Test
     func `Optional properties work with CoW`() {
@@ -480,8 +419,6 @@ struct CopyOnWriteTests {
         #expect(w2.nickname == "Nick")
     }
 
-    // MARK: - Nested CoW Struct Tests
-
     @Test
     func `Nested CoW structs work`() {
         let inner = Inner(value: 42)
@@ -500,15 +437,11 @@ struct CopyOnWriteTests {
         var outer1 = Outer(inner: inner, label: "Original")
         let outer2 = outer1
 
-        // Mutate outer1's inner
         outer1.inner = Inner(value: 999)
 
-        // outer2 should be unchanged
         #expect(outer1.inner.value == 999)
         #expect(outer2.inner.value == 42)
     }
-
-    // MARK: - Computed Property Tests
 
     @Test
     func `Computed properties are preserved`() {
@@ -524,8 +457,6 @@ struct CopyOnWriteTests {
         rect.width = 20
         #expect(rect.area == 100)
     }
-
-    // MARK: - Complex Type Tests
 
     @Test
     func `Labeled tuple array works`() {
@@ -582,7 +513,7 @@ struct CopyOnWriteTests {
 
         s.handler = nil
         s.handler?(42)
-        #expect(callCount == 1)  // Still 1 because handler is nil
+        #expect(callCount == 1)
     }
 
     @Test
@@ -606,8 +537,6 @@ struct CopyOnWriteTests {
         #expect(s2.mapping.count == 1)
     }
 
-    // MARK: - Value Generic Parameter Tests
-
     @Test
     func `Value generic parameters work`() {
         let s = WithValueGeneric(
@@ -629,21 +558,10 @@ struct CopyOnWriteTests {
         #expect(s2.size.value == 42)
     }
 
-    // MARK: - Nested _modify Composition Tests
-    //
-    // These tests exercise direct-yield `_modify` composition
-    // (`yield &storage.property`, matching a plain stored-property
-    // accessor — see [F-002]). When @CoW types nest, each level's
-    // `_modify` coroutine yields straight into its own storage; the inner
-    // `_modify`'s `ensureUnique()` runs while the outer coroutine's yield is
-    // still live. These tests verify both safety and correctness of that
-    // composition across multiple levels of nesting and sharing.
-
     @Test
     func `Nested in-place mutation through _modify chain`() {
         var outer = Outer(inner: Inner(value: 42), label: "test")
 
-        // Chains outer._modify(inner) → inner._modify(value).
         outer.inner.value = 100
 
         #expect(outer.inner.value == 100)
@@ -653,14 +571,10 @@ struct CopyOnWriteTests {
     @Test
     func `Nested in-place mutation with shared outer storage`() {
         var outer1 = Outer(inner: Inner(value: 42), label: "original")
-        let outer2 = outer1  // refcount 2 — forces ensureUnique to copy
+        let outer2 = outer1
 
         #expect(outer1.isIdentical(to: outer2))
 
-        // Critical path: outer1._modify(inner) calls ensureUnique (copies
-        // because shared), then inner._modify(value) calls inner's
-        // ensureUnique. Both ensureUnique calls run during a live _modify
-        // coroutine.
         outer1.inner.value = 999
 
         #expect(outer1.inner.value == 999)
@@ -676,10 +590,8 @@ struct CopyOnWriteTests {
             middle: DeepMiddle(inner: DeepInner(value: 1), label: "mid"),
             tag: 0
         )
-        let deep2 = deep1  // shared at all three levels
+        let deep2 = deep1
 
-        // Three chained _modify coroutines:
-        // deep1._modify(middle) → middle._modify(inner) → inner._modify(value)
         deep1.middle.inner.value = 42
 
         #expect(deep1.middle.inner.value == 42)
@@ -727,7 +639,6 @@ struct CopyOnWriteTests {
         #expect(original.isIdentical(to: copy2))
         #expect(copy1.isIdentical(to: copy3))
 
-        // In-place nested mutation with refcount 4
         original.inner.value = 999
 
         #expect(original.inner.value == 999)
@@ -745,8 +656,6 @@ struct CopyOnWriteTests {
         )
         let s2 = s1
 
-        // Chains: s1._modify(nested) → nested._modify(items) → Array._modify
-        // Three CoW layers cooperating through _modify coroutines.
         s1.nested.items.append(4)
 
         #expect(s1.nested.items == [1, 2, 3, 4])
@@ -761,23 +670,12 @@ struct CopyOnWriteTests {
         )
         let s2 = s1
 
-        // Four _modify hops: s1 → nested → items → subscript
         s1.nested.items[1] = 99
 
         #expect(s1.nested.items == [10, 99, 30])
         #expect(s2.nested.items == [10, 20, 30])
     }
 }
-
-// MARK: - Sendable Gating Tests (F-001)
-//
-// Generated Storage used to be unconditionally `@unchecked Sendable`,
-// meaning every @CoW struct was implicitly Sendable regardless of the
-// author's intent — a struct whose only stored property is an
-// `@unchecked Sendable` class auto-derives Sendable, laundering
-// non-Sendable property types through strict concurrency. Storage is now
-// `@unchecked Sendable` only when the struct explicitly declares
-// `Sendable` conformance.
 
 extension CoWMacro {
     @Suite struct `Sendable Gating` {
@@ -786,12 +684,7 @@ extension CoWMacro {
 }
 
 extension CoWMacro.`Sendable Gating`.Unit {
-    /// Overload-resolution probe for `Sendable` conformance: the
-    /// `Sendable`-constrained overload is more specialized and wins
-    /// whenever `T` actually conforms, giving a runtime-observable `Bool`
-    /// for a compile-time-checked marker-protocol conformance. (`Sendable`
-    /// is a marker protocol with no witness table, so a dynamic `is Sendable`
-    /// cast is not available — this is the standard workaround.)
+
     private static func isSendableType<T>(_ type: T.Type) -> Bool { false }
     private static func isSendableType<T: Sendable>(_ type: T.Type) -> Bool { true }
 
@@ -805,13 +698,6 @@ extension CoWMacro.`Sendable Gating`.Unit {
         #expect(Self.isSendableType(SendableGatingOptedIn.self))
     }
 }
-
-// MARK: - Nested Modify Cost Fixtures (F-002)
-//
-// Hand-rolled naive-pattern (`yield &storage.prop`, no copy-out) reference
-// implementations, used as a same-process timing baseline. Kept intentionally
-// separate from the @CoW macro output below so the comparison is meaningful
-// even if the macro's generated shape changes.
 
 private struct NestedModifyCostNaivePoint {
     private final class Storage {
@@ -913,17 +799,6 @@ struct NestedModifyCostMacroArrayOuter {
     var inner: NestedModifyCostMacroArrayInner
 }
 
-// MARK: - Nested Modify Copy-Counting Fixtures (F-002)
-//
-// A deterministic, non-timing discriminator for the copy-out vs. direct-yield
-// `_modify` pattern. `CopyCountingPoint`'s `Storage` counts its own copies via
-// `init(copying:)`; the counter is threaded through as an instance (a
-// `final class` box), not global/static state, so concurrently executing
-// tests cannot interfere with each other's counts. Both outer wrappers below
-// are otherwise identical -- only their `inner` accessor's `_modify` pattern
-// differs -- so any difference in observed copy count is attributable to
-// that one pattern choice, not to incidental structural differences.
-
 private final class CopyCountingCounter {
     private(set) var count = 0
     func increment() { count += 1 }
@@ -957,8 +832,6 @@ private struct CopyCountingPoint {
     }
 }
 
-/// Outer wrapper using the CURRENT, fixed direct-yield `_modify` pattern —
-/// mirrors the macro's post-[F-002] generated shape exactly.
 private struct CopyCountingDirectYieldOuter {
     private final class Storage {
         var inner: CopyCountingPoint
@@ -979,10 +852,6 @@ private struct CopyCountingDirectYieldOuter {
     }
 }
 
-/// Outer wrapper using the REMOVED, pre-[F-002] copy-out `_modify` pattern
-/// (`var value = storage.prop; yield &value; storage.prop = value`) --
-/// reproduces the redundant strong reference the macro used to hold live
-/// across a nested mutation's yield.
 private struct CopyCountingCopyOutOuter {
     private final class Storage {
         var inner: CopyCountingPoint
@@ -1005,12 +874,6 @@ private struct CopyCountingCopyOutOuter {
     }
 }
 
-/// Array-backed variant of `CopyCountingPoint`: the inner storage holds an
-/// `[Int]`, so each spurious `Storage` copy under the copy-out pattern also
-/// copies an O(current size) buffer — the mechanism that turned an O(n)
-/// nested append sequence into O(n^2) element traffic pre-[F-002]. The
-/// counter counts `Storage` copies (the deterministic, capacity-independent
-/// signal); the buffer cost per spurious copy follows from the array size.
 private struct CopyCountingArrayPoint {
     fileprivate final class Storage {
         var items: [Int]
@@ -1041,8 +904,6 @@ private struct CopyCountingArrayPoint {
     }
 }
 
-/// Outer wrapper over `CopyCountingArrayPoint` using the CURRENT, fixed
-/// direct-yield `_modify` pattern (post-[F-002] macro shape).
 private struct CopyCountingArrayDirectYieldOuter {
     private final class Storage {
         var inner: CopyCountingArrayPoint
@@ -1063,8 +924,6 @@ private struct CopyCountingArrayDirectYieldOuter {
     }
 }
 
-/// Outer wrapper over `CopyCountingArrayPoint` using the REMOVED, pre-[F-002]
-/// copy-out `_modify` pattern.
 private struct CopyCountingArrayCopyOutOuter {
     private final class Storage {
         var inner: CopyCountingArrayPoint
@@ -1087,35 +946,6 @@ private struct CopyCountingArrayCopyOutOuter {
     }
 }
 
-// MARK: - Nested Modify Cost Tests (F-002)
-//
-// [F-002] The old copy-out `_modify` pattern (`var value = storage.prop;
-// yield &value; storage.prop = value`) held a redundant strong reference to
-// `storage.prop`'s class-backed storage for the full duration of the yield.
-// For a NESTED @CoW property (or any class-backed collection property), this
-// defeated the inner type's OWN `isKnownUniquelyReferenced` check, forcing a
-// full copy on every nested mutation even when nothing was externally
-// shared -- an O(n) array append became O(n^2) under repeated nested
-// mutation. The generated `_modify` now yields `&storage.prop` directly
-// (matching a plain stored-property accessor), eliminating the redundant
-// reference.
-//
-// Both cases (scalar nested mutation and nested collection append) are
-// asserted deterministically: a same-instance copy counter (see the
-// copy-counting fixtures above) proves the mechanism directly -- direct
-// yield forces zero spurious inner-storage copies over N
-// uniquely-referenced nested mutations, while the removed copy-out pattern
-// forces exactly N (asserted at two sizes for the collection case, showing
-// the spurious-copy count grows linearly in N, each such copy dragging an
-// O(current size) buffer copy with it -- the O(n^2) mechanism). These
-// replace earlier timing-ratio assertions that were each observed to spike
-// above their budget under heavy machine load (scalar: 2.16 vs 1.8 budget;
-// collection: 3.34 vs 3.0 budget -- a same-process, self-calibrating ratio
-// is still far more robust than an absolute wall-clock threshold, but it
-// is still a timing measurement and can flake under extreme load). Both
-// timing comparisons are retained below purely as informational output,
-// because they exercise the real macro-generated types end-to-end.
-
 extension CoWMacro {
     @Suite struct `Nested Modify Cost` {
         @Suite struct `Edge Case` {}
@@ -1134,9 +964,6 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
     func `nested unique mutation spurious inner storage copy count is deterministic`() {
         let iterations = 25
 
-        // Direct yield (current, post-[F-002] macro shape): a
-        // uniquely-referenced outer, mutated repeatedly through a nested
-        // property, must never force a spurious copy of the inner storage.
         let directYieldCounter = CopyCountingCounter()
         var directYieldOuter = CopyCountingDirectYieldOuter(
             inner: CopyCountingPoint(x: 0, counter: directYieldCounter)
@@ -1152,10 +979,6 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
             """
         )
 
-        // Copy-out (removed, pre-[F-002] macro shape): the redundant strong
-        // reference held live across the yield defeats the inner storage's
-        // own uniqueness check, forcing exactly one spurious copy per
-        // mutation.
         let copyOutCounter = CopyCountingCounter()
         var copyOutOuter = CopyCountingCopyOutOuter(
             inner: CopyCountingPoint(x: 0, counter: copyOutCounter)
@@ -1178,7 +1001,6 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
         let iterations = 50_000
         let clock = ContinuousClock()
 
-        // Warmup both implementations before measuring.
         var warmupNaive = NestedModifyCostNaiveOuter(inner: NestedModifyCostNaivePoint(x: 0))
         (0..<2_000).forEach { i in warmupNaive.inner.x = i }
         var warmupMacro = NestedModifyCostMacroOuter(inner: NestedModifyCostMacroInner(x: 0))
@@ -1200,15 +1022,6 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
         }
         #expect(macroResult == iterations - 1)
 
-        // Informational only -- NOT asserted. The deterministic copy-count
-        // test above is the discriminating assertion for this scalar case;
-        // this measurement is retained purely as diagnostic output because
-        // it exercises the real macro-generated type end-to-end (the
-        // copy-count fixtures above are a faithful hand-rolled
-        // reproduction of both `_modify` shapes, not the macro's actual
-        // generated code). A same-process, self-calibrating ratio was
-        // observed to spike above a fixed budget under heavy ambient
-        // machine load, which is why it no longer backs an assertion here.
         let ratio =
             CoWMacro.`Nested Modify Cost`.seconds(macroDuration)
             / CoWMacro.`Nested Modify Cost`.seconds(naiveDuration)
@@ -1221,13 +1034,7 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
     func
         `nested collection append spurious inner storage copy count scales linearly not quadratically`()
     {
-        // Asserted at two sizes: the spurious-copy count must be exactly 0
-        // under direct yield (current, post-F-002 macro shape) and exactly
-        // n under copy-out (removed, pre-F-002 shape) at BOTH sizes --
-        // i.e. the copy-out pattern's spurious-copy count grows linearly
-        // in n (4x the appends -> 4x the copies, each copy dragging an
-        // O(current size) buffer copy with it: the O(n^2) element-traffic
-        // mechanism), while direct yield stays at zero regardless of n.
+
         for iterations in [25, 100] {
             let directYieldCounter = CopyCountingCounter()
             var directYieldOuter = CopyCountingArrayDirectYieldOuter(
@@ -1297,13 +1104,6 @@ extension CoWMacro.`Nested Modify Cost`.`Edge Case` {
         }
         #expect(macroCount == iterations)
 
-        // Informational only -- NOT asserted. The deterministic copy-count
-        // test above is the discriminating assertion for the collection
-        // case; this measurement is retained purely as diagnostic output
-        // because it exercises the real macro-generated type end-to-end.
-        // The former 3.0x-budget ratio assertion here was observed to
-        // breach its budget once (3.34x) under heavy ambient machine load,
-        // the same false-fail class as the scalar case's removed assertion.
         let ratio =
             CoWMacro.`Nested Modify Cost`.seconds(macroDuration)
             / CoWMacro.`Nested Modify Cost`.seconds(naiveDuration)
