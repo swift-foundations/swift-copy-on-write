@@ -59,7 +59,7 @@ struct Settings: Hashable {
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/swift-foundations/swift-copy-on-write.git", branch: "main")
+    .package(url: "https://github.com/swift-compositions/swift-copy-on-write.git", branch: "main")
 ]
 ```
 

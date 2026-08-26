@@ -2,7 +2,7 @@
 # Triaged 2026-04-29 — anomaly-fix pass after wave-4 PR-branch triage didn't apply.
 description: "A macro that transforms structs into copy-on-write types with reference-counted storage for Swift."
 topics:
-  - foundations
+  - compositions
   - copy
 homepage: "https://swift-institute.org"
 readme:
