@@ -3,17 +3,6 @@
 import CompilerPluginSupport
 import PackageDescription
 
-extension String {
-    static let copyOnWrite: Self = "Copy on Write"
-    static let copyOnWriteMacros: Self = "Copy on Write Macros"
-    var tests: Self { self + " Tests" }
-}
-
-extension Target.Dependency {
-    static var copyOnWrite: Self { .target(name: .copyOnWrite) }
-    static var copyOnWriteMacros: Self { .target(name: .copyOnWriteMacros) }
-}
-
 let package = Package(
     name: "swift-copy-on-write",
     platforms: [
@@ -25,20 +14,20 @@ let package = Package(
     ],
     products: [
         .library(
-            name: .copyOnWrite,
-            targets: [.copyOnWrite]
+            name: "Copy on Write",
+            targets: ["Copy on Write"]
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-syntax.git", "602.0.0"..<"603.0.0")
+        .package(url: "https://github.com/swiftlang/swift-syntax.git", "603.0.2"..<"604.0.0")
     ],
     targets: [
         .target(
-            name: .copyOnWrite,
-            dependencies: [.copyOnWriteMacros]
+            name: "Copy on Write",
+            dependencies: [.target(name: "Copy on Write Macros")]
         ),
         .macro(
-            name: .copyOnWriteMacros,
+            name: "Copy on Write Macros",
             dependencies: [
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
@@ -47,10 +36,10 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: .copyOnWrite.tests,
+            name: "Copy on Write Tests",
             dependencies: [
-                .copyOnWrite,
-                .copyOnWriteMacros,
+                .target(name: "Copy on Write"),
+                .target(name: "Copy on Write Macros"),
                 .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
             ],
             path: "Tests/Copy on Write Tests"
